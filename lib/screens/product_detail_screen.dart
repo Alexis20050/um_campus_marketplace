@@ -33,8 +33,15 @@ class ProductDetailScreen extends StatelessWidget {
                   ? Image.network(
                       product.imageUrls.first,
                       fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) =>
-                          const Icon(Icons.image, size: 80),
+                      loadingBuilder: (context, child, progress) {
+                        if (progress == null) return child;
+                        return const Center(child: CircularProgressIndicator());
+                      },
+                      errorBuilder: (context, error, stackTrace) {
+                        print('Detail image error: $error');
+                        print('URL: ${product.imageUrls.first}');
+                        return const Icon(Icons.image, size: 80);
+                      },
                     )
                   : const Icon(Icons.image, size: 80),
             ),
@@ -56,11 +63,10 @@ class ProductDetailScreen extends StatelessWidget {
             Text('Seller: ${product.sellerName}'),
             const SizedBox(height: 20),
 
-            // Only show these buttons if the current user is the seller
+            // Seller actions (mark as sold, delete)
             if (isSeller) ...[
               Row(
                 children: [
-                  // Mark as Sold button (optional)
                   if (!product.isSold)
                     Expanded(
                       child: ElevatedButton.icon(
@@ -68,12 +74,11 @@ class ProductDetailScreen extends StatelessWidget {
                         label: const Text('Mark as Sold'),
                         onPressed: () async {
                           await productProvider.markAsSold(product.id);
-                          Navigator.pop(context);
+                          if (context.mounted) Navigator.pop(context);
                         },
                       ),
                     ),
                   const SizedBox(width: 8),
-                  // Delete button
                   Expanded(
                     child: ElevatedButton.icon(
                       icon: const Icon(Icons.delete),
@@ -103,7 +108,7 @@ class ProductDetailScreen extends StatelessWidget {
                         );
                         if (confirm == true) {
                           await productProvider.deleteProduct(product.id);
-                          Navigator.pop(context);
+                          if (context.mounted) Navigator.pop(context);
                         }
                       },
                     ),
@@ -111,7 +116,7 @@ class ProductDetailScreen extends StatelessWidget {
                 ],
               ),
             ] else ...[
-              // For non‑sellers, show the Message Seller button
+              // Buyer actions (message seller)
               if (!product.isSold)
                 ElevatedButton.icon(
                   icon: const Icon(Icons.chat),

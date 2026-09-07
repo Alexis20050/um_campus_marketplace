@@ -25,16 +25,33 @@ class Product {
 
   // Convert a Supabase row (Map) to a Product object
   factory Product.fromMap(Map<String, dynamic> map) {
+    // Robust parsing of image_urls
+    final raw = map['image_urls'];
+    List<String> imageUrls = [];
+    if (raw is List) {
+      imageUrls = raw.map((e) => e.toString()).toList();
+    } else if (raw is String && raw.isNotEmpty) {
+      // Sometimes Supabase returns a string like "{url1,url2}"
+      final cleaned = raw.replaceAll('{', '').replaceAll('}', '');
+      imageUrls = cleaned
+          .split(',')
+          .map((s) => s.trim().replaceAll('"', ''))
+          .where((s) => s.isNotEmpty)
+          .toList();
+    }
+
     return Product(
-      id: map['id'] as String,
-      sellerId: map['seller_id'] as String,
+      id: map['id'] as String? ?? '',
+      sellerId: map['seller_id'] as String? ?? '',
       sellerName: map['seller_name'] ?? '',
       title: map['title'] ?? '',
       description: map['description'] ?? '',
-      price: (map['price'] as num).toDouble(),
+      price: (map['price'] as num?)?.toDouble() ?? 0.0,
       category: map['category'] ?? 'Other',
-      imageUrls: List<String>.from(map['image_urls'] ?? []),
-      createdAt: DateTime.parse(map['created_at'] as String),
+      imageUrls: imageUrls,
+      createdAt: map['created_at'] != null
+          ? DateTime.tryParse(map['created_at'].toString()) ?? DateTime.now()
+          : DateTime.now(),
       isSold: map['is_sold'] ?? false,
     );
   }

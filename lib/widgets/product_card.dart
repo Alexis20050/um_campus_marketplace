@@ -5,8 +5,6 @@ import '../screens/product_detail_screen.dart';
 class ProductCard extends StatelessWidget {
   final Product product;
 
-  // FIX: added super.key + made constructor const so Flutter can skip
-  // unnecessary rebuilds of unchanged cards inside ListView.builder.
   const ProductCard({super.key, required this.product});
 
   @override
@@ -38,7 +36,16 @@ class ProductCard extends StatelessWidget {
                           width: 80,
                           height: 80,
                           fit: BoxFit.cover,
+                          loadingBuilder: (context, child, progress) {
+                            if (progress == null) return child;
+                            return const Center(
+                              child: CircularProgressIndicator(),
+                            );
+                          },
                           errorBuilder: (context, error, stackTrace) {
+                            // Debug output for troubleshooting
+                            print('Image load error: $error');
+                            print('URL: ${product.imageUrls.first}');
                             return Container(
                               width: 80,
                               height: 80,

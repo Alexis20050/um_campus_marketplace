@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/product.dart';
 import '../screens/product_detail_screen.dart';
+import 'product_card.dart'; // reuse for consistent result cards
 
 class ProductSearchDelegate extends SearchDelegate<String> {
   final Stream<List<Product>> productsStream;
@@ -9,7 +10,12 @@ class ProductSearchDelegate extends SearchDelegate<String> {
   @override
   List<Widget> buildActions(BuildContext context) {
     return [
-      IconButton(icon: const Icon(Icons.clear), onPressed: () => query = ''),
+      IconButton(
+        icon: const Icon(Icons.clear),
+        onPressed: () {
+          query = '';
+        },
+      ),
     ];
   }
 
@@ -23,52 +29,66 @@ class ProductSearchDelegate extends SearchDelegate<String> {
 
   @override
   Widget buildResults(BuildContext context) {
-    return StreamBuilder<List<Product>>(
-      stream: productsStream,
-      builder: (context, snapshot) {
-        if (!snapshot.hasData)
-          return const Center(child: CircularProgressIndicator());
-        final results = snapshot.data!
-            .where((p) => p.title.toLowerCase().contains(query.toLowerCase()))
-            .toList();
-        return ListView.builder(
-          itemCount: results.length,
-          itemBuilder: (ctx, i) => ListTile(
-            title: Text(results[i].title),
-            subtitle: Text('₱${results[i].price.toStringAsFixed(2)}'),
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => ProductDetailScreen(product: results[i]),
-                ),
-              );
-            },
-          ),
-        );
-      },
-    );
+    return _buildSearchResults(context);
   }
 
   @override
   Widget buildSuggestions(BuildContext context) {
+    return _buildSearchResults(context);
+  }
+
+  Widget _buildSearchResults(BuildContext context) {
     return StreamBuilder<List<Product>>(
       stream: productsStream,
       builder: (context, snapshot) {
-        if (!snapshot.hasData)
+        if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
-        final suggestions = snapshot.data!
+        }
+
+        if (snapshot.hasError) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                const SizedBox(height: 8),
+                Text('Error: ${snapshot.error}'),
+              ],
+            ),
+          );
+        }
+
+        final allProducts = snapshot.data ?? [];
+        final filtered = allProducts
             .where((p) => p.title.toLowerCase().contains(query.toLowerCase()))
             .toList();
+
+        if (query.isEmpty) {
+          return const Center(
+            child: Text(
+              'Start typing to search for products',
+              style: TextStyle(color: Colors.grey),
+            ),
+          );
+        }
+
+        if (filtered.isEmpty) {
+          // Removed 'const' because we're using a variable ($query)
+          return Center(
+            child: Text(
+              'No products found for "$query"',
+              style: const TextStyle(fontSize: 16),
+            ),
+          );
+        }
+
         return ListView.builder(
-          itemCount: suggestions.length,
-          itemBuilder: (ctx, i) => ListTile(
-            title: Text(suggestions[i].title),
-            onTap: () {
-              query = suggestions[i].title;
-              showResults(context);
-            },
-          ),
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          itemCount: filtered.length,
+          itemBuilder: (ctx, i) {
+            final product = filtered[i];
+            return ProductCard(product: product);
+          },
         );
       },
     );
