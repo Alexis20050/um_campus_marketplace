@@ -4,11 +4,20 @@ import '../models/product.dart';
 import '../providers/auth_service.dart';
 import '../providers/product_provider.dart';
 
-class MyListingsScreen extends StatelessWidget {
+class MyListingsScreen extends StatefulWidget {
   const MyListingsScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  _MyListingsScreenState createState() => _MyListingsScreenState();
+}
+
+class _MyListingsScreenState extends State<MyListingsScreen> {
+  // Cache the stream so it isn't recreated on every rebuild
+  late final Stream<List<Product>> _sellerProductsStream;
+
+  @override
+  void initState() {
+    super.initState();
     final authService = Provider.of<AuthService>(context, listen: false);
     final productProvider = Provider.of<ProductProvider>(
       context,
@@ -16,42 +25,52 @@ class MyListingsScreen extends StatelessWidget {
     );
     final userId = authService.user?.id;
 
+    if (userId == null || userId.isEmpty) {
+      // No user, emit an empty stream
+      _sellerProductsStream = Stream.value([]);
+    } else {
+      // Create stream once and reuse
+      _sellerProductsStream = productProvider.sellerProductsStream(userId);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('My Listings')),
-      body: userId == null
-          ? const Center(child: Text('Not signed in'))
-          : StreamBuilder<List<Product>>(
-              stream: productProvider.sellerProductsStream(userId),
-              builder: (context, snapshot) {
-                if (snapshot.hasError) {
-                  return Center(child: Text('Error: ${snapshot.error}'));
-                }
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                final products = snapshot.data ?? [];
-                if (products.isEmpty) {
-                  return const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(24),
-                      child: Text(
-                        'You haven\'t posted any items yet.',
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  );
-                }
-                return ListView.builder(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  itemCount: products.length,
-                  itemBuilder: (ctx, i) => _MyListingTile(product: products[i]),
-                );
-              },
-            ),
+      body: StreamBuilder<List<Product>>(
+        stream: _sellerProductsStream,
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return Center(child: Text('Error: ${snapshot.error}'));
+          }
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final products = snapshot.data ?? [];
+          if (products.isEmpty) {
+            return const Center(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Text(
+                  'You haven\'t posted any items yet.',
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            );
+          }
+          return ListView.builder(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            itemCount: products.length,
+            itemBuilder: (ctx, i) => _MyListingTile(product: products[i]),
+          );
+        },
+      ),
     );
   }
 }
 
+// _MyListingTile remains the same
 class _MyListingTile extends StatelessWidget {
   final Product product;
   const _MyListingTile({required this.product});
@@ -135,7 +154,6 @@ class _MyListingTile extends StatelessWidget {
                 ],
               ),
             ),
-            // Actions menu: toggle sold status, delete
             PopupMenuButton<String>(
               onSelected: (value) async {
                 if (value == 'toggle') {

@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
 import '../models/product.dart';
-import '../screens/product_detail_screen.dart';
-import 'product_card.dart'; // reuse for consistent result cards
+import 'product_card.dart';
 
 class ProductSearchDelegate extends SearchDelegate<String> {
   final Stream<List<Product>> productsStream;
-  ProductSearchDelegate(this.productsStream);
+
+  ProductSearchDelegate(this.productsStream)
+    : super(
+        searchFieldLabel: 'Search products',
+        keyboardType: TextInputType.text,
+        textInputAction: TextInputAction.search,
+      );
 
   @override
   List<Widget> buildActions(BuildContext context) {
@@ -46,51 +51,81 @@ class ProductSearchDelegate extends SearchDelegate<String> {
         }
 
         if (snapshot.hasError) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.error_outline, size: 48, color: Colors.red),
-                const SizedBox(height: 8),
-                Text('Error: ${snapshot.error}'),
-              ],
-            ),
+          return _buildMessage(
+            icon: Icons.error_outline,
+            title: 'Something went wrong',
+            subtitle: 'Please try again later.',
           );
         }
 
         final allProducts = snapshot.data ?? [];
+        final queryLower = query.toLowerCase();
         final filtered = allProducts
-            .where((p) => p.title.toLowerCase().contains(query.toLowerCase()))
+            .where((p) => p.title.toLowerCase().contains(queryLower))
             .toList();
 
         if (query.isEmpty) {
-          return const Center(
-            child: Text(
-              'Start typing to search for products',
-              style: TextStyle(color: Colors.grey),
-            ),
+          return _buildMessage(
+            icon: Icons.search,
+            title: 'Start typing to search',
+            subtitle: 'Find products by title',
           );
         }
 
         if (filtered.isEmpty) {
-          // Removed 'const' because we're using a variable ($query)
-          return Center(
-            child: Text(
-              'No products found for "$query"',
-              style: const TextStyle(fontSize: 16),
-            ),
+          return _buildMessage(
+            icon: Icons.inbox_outlined,
+            title: 'No products found',
+            subtitle: 'Try a different keyword',
           );
         }
 
-        return ListView.builder(
+        return ListView.separated(
           padding: const EdgeInsets.symmetric(vertical: 8),
           itemCount: filtered.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 8),
           itemBuilder: (ctx, i) {
             final product = filtered[i];
-            return ProductCard(product: product);
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: ProductCard(product: product),
+            );
           },
         );
       },
+    );
+  }
+
+  Widget _buildMessage({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+  }) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 56, color: Colors.grey[400]),
+            const SizedBox(height: 16),
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              subtitle,
+              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

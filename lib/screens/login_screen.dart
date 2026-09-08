@@ -7,25 +7,39 @@ class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
   @override
-  _LoginScreenState createState() => _LoginScreenState();
+  State<LoginScreen> createState() => _LoginScreenState();
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _formKey = GlobalKey<FormState>();
+  // Separate keys per form to avoid GlobalKey conflicts between
+  // the login/register form and the OTP form.
+  final _authFormKey = GlobalKey<FormState>();
+  final _otpFormKey = GlobalKey<FormState>();
+
+  final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+  final _otpController = TextEditingController();
 
-  bool _isLogin = true; // Toggle between login and register
+  static const int _cooldownDuration = 60; // matches Supabase's server cooldown
+
+  bool _isLogin = true;
+  bool _otpSent = false;
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
   bool _isLoading = false;
 
+  bool _canSubmit = true;
+  int _cooldownSeconds = 0;
+
   @override
   void dispose() {
+    _nameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
+    _otpController.dispose();
     super.dispose();
   }
 
@@ -33,28 +47,28 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     final authService = Provider.of<AuthService>(context);
 
-    // If user is already logged in, go to main screen
     if (authService.user != null) {
       return const MainScreen();
     }
 
+    return _otpSent ? _buildOtpForm(authService) : _buildAuthForm();
+  }
+
+  Widget _buildAuthForm() {
     return Scaffold(
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Form(
-            key: _formKey,
+            key: _authFormKey,
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // University logo
                 Image.asset(
                   'assets/images/University_of_Mindanao_Logo.png',
                   height: 100,
                 ),
                 const SizedBox(height: 20),
-
-                // Title
                 Text(
                   _isLogin ? 'Welcome Back!' : 'Create Account',
                   style: const TextStyle(
@@ -71,7 +85,26 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: 24),
 
-                // Email field
+                if (!_isLogin) ...[
+                  TextFormField(
+                    controller: _nameController,
+                    textCapitalization: TextCapitalization.words,
+                    decoration: const InputDecoration(
+                      labelText: 'Full Name',
+                      hintText: 'e.g., Juan Dela Cruz',
+                      prefixIcon: Icon(Icons.person_outline),
+                      border: OutlineInputBorder(),
+                    ),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return 'Please enter your name';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                ],
+
                 TextFormField(
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
@@ -82,10 +115,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     border: OutlineInputBorder(),
                   ),
                   validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please enter your email';
-                    }
-                    if (!value.endsWith('@umindanao.edu.ph')) {
+                    final email = value?.trim() ?? '';
+                    if (email.isEmpty) return 'Please enter your email';
+                    if (!email.endsWith('@umindanao.edu.ph')) {
                       return 'Only UM email addresses are allowed';
                     }
                     return null;
@@ -93,7 +125,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                // Password field
                 TextFormField(
                   controller: _passwordController,
                   obscureText: _obscurePassword,
@@ -108,9 +139,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             : Icons.visibility,
                       ),
                       onPressed: () {
-                        setState(() {
-                          _obscurePassword = !_obscurePassword;
-                        });
+                        setState(() => _obscurePassword = !_obscurePassword);
                       },
                     ),
                   ),
@@ -126,7 +155,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                // Confirm password (only for register)
                 if (!_isLogin) ...[
                   TextFormField(
                     controller: _confirmPasswordController,
@@ -142,9 +170,10 @@ class _LoginScreenState extends State<LoginScreen> {
                               : Icons.visibility,
                         ),
                         onPressed: () {
-                          setState(() {
-                            _obscureConfirmPassword = !_obscureConfirmPassword;
-                          });
+                          setState(
+                            () => _obscureConfirmPassword =
+                                !_obscureConfirmPassword,
+                          );
                         },
                       ),
                     ),
@@ -161,12 +190,16 @@ class _LoginScreenState extends State<LoginScreen> {
                   const SizedBox(height: 16),
                 ],
 
-                // Submit button
                 SizedBox(
                   width: double.infinity,
                   height: 48,
                   child: ElevatedButton(
-                    onPressed: _isLoading ? null : () => _submit(authService),
+                    // Only gated by _isLoading now — the OTP resend
+                    // cooldown must never block the login/register
+                    // button, since it's a completely separate action.
+                    onPressed: _isLoading
+                        ? null
+                        : () => _submit(context.read<AuthService>()),
                     child: _isLoading
                         ? const SizedBox(
                             height: 20,
@@ -181,7 +214,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: 12),
 
-                // Toggle between login and register
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -196,7 +228,6 @@ class _LoginScreenState extends State<LoginScreen> {
                           : () {
                               setState(() {
                                 _isLogin = !_isLogin;
-                                // Clear password fields when switching modes
                                 _passwordController.clear();
                                 _confirmPasswordController.clear();
                               });
@@ -205,53 +236,6 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ],
                 ),
-
-                // FIX: Previously this was gated on
-                // `_emailController.text.isNotEmpty` checked only during
-                // build(), but TextEditingController doesn't trigger a
-                // rebuild when the user types — so the button only
-                // appeared/disappeared when some unrelated setState fired
-                // (e.g. toggling password visibility). Wrapping it in a
-                // ValueListenableBuilder makes it react live to typing,
-                // with no extra state variables needed.
-                if (!_isLogin)
-                  ValueListenableBuilder<TextEditingValue>(
-                    valueListenable: _emailController,
-                    builder: (context, value, _) {
-                      if (value.text.isEmpty) {
-                        return const SizedBox.shrink();
-                      }
-                      return Column(
-                        children: [
-                          const SizedBox(height: 8),
-                          TextButton.icon(
-                            onPressed: () async {
-                              try {
-                                await authService.resendConfirmationEmail(
-                                  _emailController.text.trim(),
-                                );
-                                if (!context.mounted) return;
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Verification email resent.'),
-                                  ),
-                                );
-                              } catch (e) {
-                                if (!context.mounted) return;
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text('Failed to resend email: $e'),
-                                  ),
-                                );
-                              }
-                            },
-                            icon: const Icon(Icons.email_outlined),
-                            label: const Text('Resend verification email'),
-                          ),
-                        ],
-                      );
-                    },
-                  ),
               ],
             ),
           ),
@@ -260,13 +244,140 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  // Handle form submission
-  Future<void> _submit(AuthService authService) async {
-    if (!_formKey.currentState!.validate()) return;
+  Widget _buildOtpForm(AuthService authService) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Verify Email')),
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Form(
+            key: _otpFormKey,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.mark_email_read_outlined,
+                  size: 80,
+                  color: Color(0xFF800000),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Enter the verification code',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'We sent a code to ${_emailController.text.trim()}',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.grey[600]),
+                ),
+                const SizedBox(height: 24),
+                TextFormField(
+                  controller: _otpController,
+                  keyboardType: TextInputType.number,
+                  maxLength: 8, // Supabase's OTP length is a project
+                  // setting (GOTRUE_MAILER_OTP_LENGTH) and isn't
+                  // guaranteed to be 6 — some projects default to 8.
+                  // We allow up to 8 and validate loosely below so a
+                  // valid code is never rejected client-side.
+                  decoration: const InputDecoration(
+                    labelText: 'Verification code',
+                    prefixIcon: Icon(Icons.pin_outlined),
+                    border: OutlineInputBorder(),
+                    counterText:
+                        '', // hide the x/8 counter, it's not meaningful here
+                  ),
+                  validator: (value) {
+                    final code = value?.trim() ?? '';
+                    if (code.isEmpty) {
+                      return 'Enter the code from your email';
+                    }
+                    if (!RegExp(r'^\d+$').hasMatch(code)) {
+                      return 'Code must contain only numbers';
+                    }
+                    if (code.length < 6 || code.length > 8) {
+                      return 'Enter the full code from your email';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: ElevatedButton(
+                    onPressed: _isLoading
+                        ? null
+                        : () => _verifyOtp(authService),
+                    child: _isLoading
+                        ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Text('Verify & Continue'),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextButton(
+                  onPressed: (_canSubmit && !_isLoading)
+                      ? () => _resendOtp(authService)
+                      : null,
+                  child: Text(
+                    _canSubmit
+                        ? 'Resend code'
+                        : 'Resend in $_cooldownSeconds s',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextButton(
+                  onPressed: _isLoading
+                      ? null
+                      : () {
+                          setState(() {
+                            _otpSent = false;
+                            _otpController.clear();
+                            // Reset cooldown state — it's scoped to the
+                            // OTP screen only and shouldn't linger.
+                            _canSubmit = true;
+                            _cooldownSeconds = 0;
+                          });
+                        },
+                  child: const Text('Back to sign in'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
+  /// Single reusable cooldown starter — used after both the initial OTP
+  /// send and every resend, so the UI always reflects Supabase's real
+  /// server-side rate limit instead of drifting out of sync with it.
+  Future<void> _startCooldown() async {
     setState(() {
-      _isLoading = true;
+      _canSubmit = false;
+      _cooldownSeconds = _cooldownDuration;
     });
+    while (_cooldownSeconds > 0 && mounted) {
+      await Future.delayed(const Duration(seconds: 1));
+      if (!mounted) return;
+      setState(() => _cooldownSeconds--);
+    }
+    if (mounted) setState(() => _canSubmit = true);
+  }
+
+  Future<void> _submit(AuthService authService) async {
+    if (!_authFormKey.currentState!.validate()) return;
+    if (_isLoading)
+      return; // guard against double-tap while a request is in flight
+
+    setState(() => _isLoading = true);
 
     try {
       if (_isLogin) {
@@ -274,36 +385,31 @@ class _LoginScreenState extends State<LoginScreen> {
           _emailController.text.trim(),
           _passwordController.text.trim(),
         );
-        // On successful login, navigation happens automatically via auth state listener.
+        // On success, auth listener navigates automatically.
       } else {
+        // signUp() only creates the account (or confirms one is
+        // already pending) — it does NOT send the OTP. That keeps a
+        // slow/failed email from ever blocking navigation.
         await authService.signUp(
           _emailController.text.trim(),
           _passwordController.text.trim(),
+          name: _nameController.text.trim(),
         );
 
+        // Move to the PIN screen unconditionally once account
+        // creation itself succeeded (or the account already existed
+        // unconfirmed) — never let the OTP step gate this transition.
         if (!mounted) return;
+        setState(() => _otpSent = true);
 
-        // Sign-up succeeded, but user is not logged in if email confirmation is ON.
-        // Show a success message and switch back to login mode.
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Registration successful! Please check your email (${_emailController.text.trim()}) to confirm your account.',
-            ),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 6),
-          ),
-        );
-
-        setState(() {
-          _isLogin = true;
-          _passwordController.clear();
-          _confirmPasswordController.clear();
-        });
+        // Send the OTP as its own step with its own error handling.
+        // A failure here just shows a message and leaves the user on
+        // the PIN screen with a working "Resend" button — it never
+        // throws them back to the registration form.
+        await _sendInitialOtp(authService);
       }
     } catch (e) {
       if (!mounted) return;
-      // Show error message
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(e.toString()),
@@ -312,11 +418,69 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       );
     } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  /// Sends the first OTP after landing on the PIN screen. Failures are
+  /// shown inline but do not navigate away — the user can always tap
+  /// "Resend code" to try again once the cooldown clears.
+  Future<void> _sendInitialOtp(AuthService authService) async {
+    try {
+      await authService.sendEmailOtp(_emailController.text.trim());
+      _startCooldown();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Could not send the code ($e). Tap Resend to try again.',
+          ),
+          backgroundColor: Colors.orange,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+      // No cooldown started since no code actually went out — the
+      // Resend button stays immediately usable.
+    }
+  }
+
+  Future<void> _resendOtp(AuthService authService) async {
+    setState(() => _isLoading = true);
+    try {
+      await authService.resendEmailOtp(_emailController.text.trim());
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('New code sent!')));
+      _startCooldown();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
+      );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _verifyOtp(AuthService authService) async {
+    if (!_otpFormKey.currentState!.validate()) return;
+
+    setState(() => _isLoading = true);
+    try {
+      await authService.verifyEmailOtp(
+        email: _emailController.text.trim(),
+        token: _otpController.text.trim(),
+      );
+      // On success, auth state listener navigates to MainScreen.
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
+      );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 }

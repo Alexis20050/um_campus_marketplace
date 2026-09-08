@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/product.dart';
 import '../screens/product_detail_screen.dart';
+import '../theme/app_theme.dart'; // add this if you have theme file
 
 class ProductCard extends StatelessWidget {
   final Product product;
@@ -11,7 +12,9 @@ class ProductCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      elevation: 3,
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: () {
           Navigator.push(
@@ -24,29 +27,43 @@ class ProductCard extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: SizedBox(
-                  width: 80,
-                  height: 80,
-                  child: product.imageUrls.isNotEmpty
-                      ? Image.network(
-                          product.imageUrls.first,
-                          width: 80,
-                          height: 80,
-                          fit: BoxFit.cover,
-                          loadingBuilder: (context, child, progress) {
-                            if (progress == null) return child;
-                            return const Center(
-                              child: CircularProgressIndicator(),
-                            );
-                          },
-                          errorBuilder: (context, error, stackTrace) {
-                            // Debug output for troubleshooting
-                            print('Image load error: $error');
-                            print('URL: ${product.imageUrls.first}');
-                            return Container(
+              // Product image with SOLD overlay
+              Stack(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: SizedBox(
+                      width: 80,
+                      height: 80,
+                      child: product.imageUrls.isNotEmpty
+                          ? Image.network(
+                              product.imageUrls.first,
+                              width: 80,
+                              height: 80,
+                              fit: BoxFit.cover,
+                              loadingBuilder: (context, child, progress) {
+                                if (progress == null) return child;
+                                return const Center(
+                                  child: CircularProgressIndicator(
+                                    color: AppColors.maroon,
+                                  ),
+                                );
+                              },
+                              errorBuilder: (context, error, stackTrace) {
+                                return Container(
+                                  width: 80,
+                                  height: 80,
+                                  color: Colors.grey[300],
+                                  child: const Icon(
+                                    Icons.image_not_supported,
+                                    size: 40,
+                                  ),
+                                );
+                              },
+                            )
+                          : Container(
                               width: 80,
                               height: 80,
                               color: Colors.grey[300],
@@ -54,21 +71,33 @@ class ProductCard extends StatelessWidget {
                                 Icons.image_not_supported,
                                 size: 40,
                               ),
-                            );
-                          },
-                        )
-                      : Container(
-                          width: 80,
-                          height: 80,
-                          color: Colors.grey[300],
-                          child: const Icon(
-                            Icons.image_not_supported,
-                            size: 40,
+                            ),
+                    ),
+                  ),
+                  if (product.isSold)
+                    Positioned.fill(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.5),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Center(
+                          child: Text(
+                            'SOLD',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                              letterSpacing: 0.5,
+                            ),
                           ),
                         ),
-                ),
+                      ),
+                    ),
+                ],
               ),
               const SizedBox(width: 12),
+              // Product details
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -80,13 +109,14 @@ class ProductCard extends StatelessWidget {
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 16,
+                        color: Colors.black87,
                       ),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       '₱${product.price.toStringAsFixed(2)}',
                       style: const TextStyle(
-                        color: Colors.green,
+                        color: AppColors.maroon,
                         fontSize: 18,
                         fontWeight: FontWeight.w600,
                       ),
@@ -98,27 +128,6 @@ class ProductCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(color: Colors.grey, fontSize: 12),
                     ),
-                    if (product.isSold) ...[
-                      const SizedBox(height: 4),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.red[100],
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: const Text(
-                          'SOLD',
-                          style: TextStyle(
-                            color: Colors.red,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ],
                   ],
                 ),
               ),

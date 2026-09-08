@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -7,7 +7,8 @@ import '../providers/auth_service.dart';
 import '../providers/product_provider.dart';
 
 class PostProductScreen extends StatefulWidget {
-  const PostProductScreen({super.key});
+  final VoidCallback? onPostSuccess;
+  const PostProductScreen({super.key, this.onPostSuccess});
 
   @override
   _PostProductScreenState createState() => _PostProductScreenState();
@@ -19,9 +20,12 @@ class _PostProductScreenState extends State<PostProductScreen> {
   final _descriptionController = TextEditingController();
   final _priceController = TextEditingController();
   String _category = 'Books';
+
   final List<XFile> _selectedImages = [];
+  final List<Uint8List> _selectedImageBytes = []; // For web preview
+
   bool _isUploading = false;
-  bool _isPicking = false; // Prevent multiple picker calls
+  bool _isPicking = false;
   static const int _maxImages = 5;
 
   final List<String> _categories = [
@@ -44,7 +48,7 @@ class _PostProductScreenState extends State<PostProductScreen> {
   }
 
   Future<void> _pickImages() async {
-    if (_isPicking) return; // Already picking
+    if (_isPicking) return;
     if (_selectedImages.length >= _maxImages) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('You can select up to $_maxImages photos.')),
@@ -56,12 +60,21 @@ class _PostProductScreenState extends State<PostProductScreen> {
     try {
       final List<XFile> images = await _picker.pickMultiImage();
       if (images.isNotEmpty) {
-        // Enforce max limit
         final remainingSlots = _maxImages - _selectedImages.length;
         final imagesToAdd = images.take(remainingSlots).toList();
+
+        // Read bytes for preview and upload (web + mobile)
+        final List<Uint8List> bytesList = [];
+        for (var img in imagesToAdd) {
+          final bytes = await img.readAsBytes();
+          bytesList.add(bytes);
+        }
+
         setState(() {
           _selectedImages.addAll(imagesToAdd);
+          _selectedImageBytes.addAll(bytesList);
         });
+
         if (images.length > remainingSlots) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -81,7 +94,6 @@ class _PostProductScreenState extends State<PostProductScreen> {
     }
   }
 
-  // Sanitize filename to avoid issues with spaces or special characters
   String _sanitizeFileName(String name) {
     return name.replaceAll(RegExp(r'[^\w.\-]'), '_');
   }
@@ -89,15 +101,18 @@ class _PostProductScreenState extends State<PostProductScreen> {
   Future<List<String>> _uploadImages() async {
     final supabase = Supabase.instance.client;
     final List<String> urls = [];
-    final userId = supabase.auth.currentUser!.id;
+    final userId = supabase.auth.currentUser?.id;
+    if (userId == null) {
+      throw Exception('You must be logged in to upload images.');
+    }
 
-    for (var img in _selectedImages) {
+    for (int i = 0; i < _selectedImages.length; i++) {
+      final img = _selectedImages[i];
+      final bytes = _selectedImageBytes[i];
       final safeName = _sanitizeFileName(img.name);
       final fileName = '${DateTime.now().millisecondsSinceEpoch}_$safeName';
       final path = '$userId/$fileName';
-      await supabase.storage
-          .from('product-images')
-          .upload(path, File(img.path));
+      await supabase.storage.from('product-images').uploadBinary(path, bytes);
       final url = supabase.storage.from('product-images').getPublicUrl(path);
       urls.add(url);
     }
@@ -116,17 +131,39 @@ class _PostProductScreenState extends State<PostProductScreen> {
         context,
         listen: false,
       );
+
+      final userId = authService.user?.id;
+      if (userId == null) {
+        throw Exception('You must be logged in to post.');
+      }
+
       final imageUrls = await _uploadImages();
       await productProvider.addProduct(
-        sellerId: authService.user!.id,
-        sellerName: authService.user!.email ?? 'UM Student',
+        sellerId: userId,
+        sellerName: authService.user?.email ?? 'UM Student',
         title: _titleController.text,
         description: _descriptionController.text,
         price: double.parse(_priceController.text),
         category: _category,
         imageUrls: imageUrls,
       );
-      if (mounted) Navigator.pop(context);
+
+      // Reset form
+      _formKey.currentState!.reset();
+      _titleController.clear();
+      _descriptionController.clear();
+      _priceController.clear();
+      setState(() {
+        _selectedImages.clear();
+        _selectedImageBytes.clear();
+        _category = 'Books';
+      });
+
+      widget.onPostSuccess?.call();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Product posted successfully!')),
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -147,7 +184,6 @@ class _PostProductScreenState extends State<PostProductScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            // Title input
             TextFormField(
               controller: _titleController,
               textCapitalization: TextCapitalization.sentences,
@@ -160,8 +196,6 @@ class _PostProductScreenState extends State<PostProductScreen> {
                   v!.trim().isEmpty ? 'Please enter a title' : null,
             ),
             const SizedBox(height: 16),
-
-            // Description input
             TextFormField(
               controller: _descriptionController,
               maxLines: 3,
@@ -174,8 +208,6 @@ class _PostProductScreenState extends State<PostProductScreen> {
               ),
             ),
             const SizedBox(height: 16),
-
-            // Price input
             TextFormField(
               controller: _priceController,
               keyboardType: const TextInputType.numberWithOptions(
@@ -196,8 +228,6 @@ class _PostProductScreenState extends State<PostProductScreen> {
               },
             ),
             const SizedBox(height: 16),
-
-            // Category dropdown
             DropdownButtonFormField<String>(
               value: _category,
               items: _categories
@@ -210,8 +240,6 @@ class _PostProductScreenState extends State<PostProductScreen> {
               ),
             ),
             const SizedBox(height: 20),
-
-            // Image picker section
             Row(
               children: [
                 OutlinedButton.icon(
@@ -233,8 +261,6 @@ class _PostProductScreenState extends State<PostProductScreen> {
               ],
             ),
             const SizedBox(height: 12),
-
-            // Thumbnails with remove button
             if (_selectedImages.isNotEmpty)
               SizedBox(
                 height: 100,
@@ -252,8 +278,8 @@ class _PostProductScreenState extends State<PostProductScreen> {
                           ),
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(8),
-                            child: Image.file(
-                              File(_selectedImages[i].path),
+                            child: Image.memory(
+                              _selectedImageBytes[i],
                               width: 100,
                               height: 100,
                               fit: BoxFit.cover,
@@ -267,6 +293,7 @@ class _PostProductScreenState extends State<PostProductScreen> {
                             onTap: () {
                               setState(() {
                                 _selectedImages.removeAt(i);
+                                _selectedImageBytes.removeAt(i);
                               });
                             },
                             child: Container(
@@ -293,8 +320,6 @@ class _PostProductScreenState extends State<PostProductScreen> {
                 ),
               ),
             const SizedBox(height: 24),
-
-            // Submit button with loading state
             ElevatedButton(
               onPressed: _isUploading ? null : _submit,
               style: ElevatedButton.styleFrom(

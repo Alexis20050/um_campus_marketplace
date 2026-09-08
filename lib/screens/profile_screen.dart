@@ -5,6 +5,7 @@ import '../providers/auth_service.dart';
 import '../providers/product_provider.dart';
 import '../theme/app_theme.dart';
 import 'my_listings_screen.dart';
+import 'favorites_screen.dart'; // <-- add this import
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -140,8 +141,7 @@ class ProfileScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 16),
 
-                // Stats row: active listings vs sold, computed live from
-                // the seller's own products stream.
+                // Stats row: active listings vs sold
                 StreamBuilder<List<Product>>(
                   stream: productProvider.sellerProductsStream(user.id),
                   builder: (context, snapshot) {
@@ -181,6 +181,26 @@ class ProfileScreen extends StatelessWidget {
                   },
                 ),
                 const SizedBox(height: 16),
+
+                // My Favorites entry point
+                Card(
+                  elevation: 1,
+                  child: ListTile(
+                    leading: const Icon(Icons.favorite, color: Colors.red),
+                    title: const Text('My Favorites'),
+                    subtitle: const Text('View items you\'ve saved'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const FavoritesScreen(),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 12),
 
                 // My Listings entry point
                 Card(
