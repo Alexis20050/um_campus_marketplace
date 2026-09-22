@@ -7,7 +7,12 @@ class MessageProvider extends ChangeNotifier {
 
   SupabaseClient get client => _supabase;
 
-  // Get or create a conversation
+  // ============================================================
+  // CONVERSATIONS
+  // ============================================================
+
+  /// Get an existing conversation or create a new one between the
+  /// current user (as buyer) and the given seller for a product.
   Future<String> getOrCreateConversation({
     required String productId,
     required String sellerId,
@@ -41,7 +46,8 @@ class MessageProvider extends ChangeNotifier {
     return response['id'] as String;
   }
 
-  // Fetch all conversations for the current user that have at least one message
+  /// Fetch all conversations for the current user that have at least
+  /// one message, with the last message preview attached.
   Future<List<Map<String, dynamic>>> fetchConversations() async {
     final userId = _supabase.auth.currentUser?.id;
     if (userId == null) return [];
@@ -74,13 +80,13 @@ class MessageProvider extends ChangeNotifier {
       convo.remove('messages');
     }
 
-    // 🔥 NEW: Keep only conversations that actually have messages
+    // Keep only conversations that actually have messages.
     conversations.removeWhere((convo) => convo['last_message'] == null);
 
     return conversations;
   }
 
-  // Mark a conversation as read
+  /// Mark a conversation as read (clears unread count).
   Future<void> markConversationAsRead(String conversationId) async {
     final userId = _supabase.auth.currentUser?.id;
     if (userId == null) return;
@@ -91,7 +97,16 @@ class MessageProvider extends ChangeNotifier {
         .or('buyer_id.eq.$userId,seller_id.eq.$userId');
   }
 
-  // Stream messages
+  // ============================================================
+  // MESSAGES
+  // ============================================================
+
+  /// Returns a realtime stream of messages for a conversation.
+  ///
+  /// IMPORTANT: The caller should cache this stream in `initState` —
+  /// calling this method on every `build()` creates a new subscription
+  /// each time, causing the message list to briefly double-render while
+  /// the new subscription re-syncs.
   Stream<List<Map<String, dynamic>>> messagesStream(String conversationId) {
     return _supabase
         .from('messages')
@@ -100,7 +115,12 @@ class MessageProvider extends ChangeNotifier {
         .order('created_at', ascending: true);
   }
 
-  // Send a message
+  /// Send a message.
+  ///
+  /// Deliberately does NOT call `notifyListeners()`. The realtime
+  /// stream already emits the new row, so manually notifying listeners
+  /// would force an extra rebuild and can cause a flicker/double-render
+  /// of the message list.
   Future<void> sendMessage({
     required String conversationId,
     required String content,
@@ -112,6 +132,29 @@ class MessageProvider extends ChangeNotifier {
       'sender_id': userId,
       'content': content,
     });
-    notifyListeners();
+    // No notifyListeners() — the realtime stream handles the UI update.
+  }
+
+  // ============================================================
+  // UTILITIES
+  // ============================================================
+
+  /// Deduplicates a list of message maps by their `id`.
+  ///
+  /// Supabase Realtime occasionally re-emits rows (e.g., on
+  /// resubscription). This guard prevents duplicate bubbles from
+  /// rendering in the chat screen.
+  static List<Map<String, dynamic>> dedupeMessages(
+    List<Map<String, dynamic>> messages,
+  ) {
+    final seen = <String>{};
+    final result = <Map<String, dynamic>>[];
+    for (final m in messages) {
+      final id = m['id']?.toString() ?? '';
+      if (id.isNotEmpty && seen.add(id)) {
+        result.add(m);
+      }
+    }
+    return result;
   }
 }

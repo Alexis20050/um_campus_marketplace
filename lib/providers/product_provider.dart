@@ -99,6 +99,16 @@ class ProductProvider extends ChangeNotifier {
         .map((rows) => rows.map((row) => Product.fromMap(row)).toList());
   }
 
+  // Fetch a public profile row for a given user id (used by UserProfileScreen)
+  Future<Map<String, dynamic>?> fetchProfileById(String userId) async {
+    final data = await _supabase
+        .from('profiles')
+        .select('id, name, email, created_at')
+        .eq('id', userId)
+        .maybeSingle();
+    return data;
+  }
+
   // Add a new product
   Future<void> addProduct({
     required String sellerId,
@@ -119,6 +129,28 @@ class ProductProvider extends ChangeNotifier {
       'image_urls': imageUrls,
       'is_sold': false,
     });
+    notifyListeners();
+  }
+
+  // Update an existing product's details
+  Future<void> updateProduct({
+    required String id,
+    required String title,
+    required String description,
+    required double price,
+    required String category,
+    required List<String> imageUrls,
+  }) async {
+    await _supabase
+        .from('products')
+        .update({
+          'title': title,
+          'description': description,
+          'price': price,
+          'category': category,
+          'image_urls': imageUrls,
+        })
+        .eq('id', id);
     notifyListeners();
   }
 

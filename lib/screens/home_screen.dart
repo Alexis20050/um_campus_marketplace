@@ -4,6 +4,8 @@ import '../models/product.dart';
 import '../providers/product_provider.dart';
 import '../widgets/product_card.dart';
 import '../widgets/product_search_delegate.dart';
+import '../widgets/skeleton_product_card.dart';
+import '../widgets/empty_state.dart';
 import '../theme/app_theme.dart';
 import 'post_product_screen.dart';
 
@@ -29,9 +31,11 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final productProvider = Provider.of<ProductProvider>(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bgColor = isDark ? AppColors.darkBackground : AppColors.background;
 
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: bgColor,
       appBar: AppBar(
         backgroundColor: AppColors.maroon,
         elevation: 0,
@@ -69,7 +73,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       body: Column(
         children: [
-          // Welcome banner
+          // ── Welcome banner ────────────────────────────────
           Container(
             margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
             padding: const EdgeInsets.all(16),
@@ -127,11 +131,11 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
 
-          // Search bar
+          // ── Search bar ────────────────────────────────────
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
             child: Material(
-              color: Colors.white,
+              color: isDark ? AppColors.darkSurface : Colors.white,
               borderRadius: BorderRadius.circular(25),
               child: InkWell(
                 borderRadius: BorderRadius.circular(25),
@@ -148,15 +152,25 @@ class _HomeScreenState extends State<HomeScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(25),
-                    border: Border.all(color: Colors.grey[300]!),
+                    border: Border.all(
+                      color: isDark
+                          ? const Color(0xFF2E2E2E)
+                          : Colors.grey[300]!,
+                    ),
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.search_rounded, color: Colors.grey[500]),
+                      Icon(
+                        Icons.search_rounded,
+                        color: Colors.grey[isDark ? 500 : 500],
+                      ),
                       const SizedBox(width: 8),
                       Text(
                         'Search for products',
-                        style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                        style: TextStyle(
+                          color: Colors.grey[isDark ? 400 : 600],
+                          fontSize: 14,
+                        ),
                       ),
                     ],
                   ),
@@ -165,7 +179,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
 
-          // Category chips
+          // ── Category chips ────────────────────────────────
           SizedBox(
             height: 44,
             child: ListView.separated(
@@ -177,8 +191,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 final category = _categories[i];
                 final isSelected = _selectedCategory == category;
 
+                final unselectedBg = isDark
+                    ? const Color(0xFF2A2A2A)
+                    : Colors.grey[200];
+                final unselectedText = isDark
+                    ? Colors.grey[200]
+                    : Colors.black87;
+
                 return Material(
-                  color: isSelected ? AppColors.maroon : Colors.grey[200],
+                  color: isSelected ? AppColors.maroon : unselectedBg,
                   borderRadius: BorderRadius.circular(20),
                   elevation: isSelected ? 2 : 0,
                   shadowColor: AppColors.maroon.withOpacity(0.3),
@@ -206,7 +227,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           Text(
                             category,
                             style: TextStyle(
-                              color: isSelected ? Colors.white : Colors.black87,
+                              color: isSelected ? Colors.white : unselectedText,
                               fontWeight: isSelected
                                   ? FontWeight.w600
                                   : FontWeight.w500,
@@ -224,19 +245,31 @@ class _HomeScreenState extends State<HomeScreen> {
 
           const SizedBox(height: 4),
 
-          // Product list
+          // ── Product list ──────────────────────────────────
           Expanded(
             child: StreamBuilder<List<Product>>(
               stream: productProvider.productsStream,
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
-                  return Center(child: Text('Error: ${snapshot.error}'));
-                }
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(
-                    child: CircularProgressIndicator(color: AppColors.maroon),
+                  return EmptyState(
+                    icon: Icons.cloud_off_outlined,
+                    title: 'Something went wrong',
+                    subtitle:
+                        'We couldn\'t load the listings. Pull down to retry.',
+                    actionLabel: 'Retry',
+                    onAction: () => setState(() {}),
                   );
                 }
+
+                // Loading: show skeleton cards instead of a spinner.
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(0, 8, 0, 80),
+                    itemCount: 6,
+                    itemBuilder: (_, __) => const SkeletonProductCard(),
+                  );
+                }
+
                 final allProducts = snapshot.data ?? [];
                 final filteredProducts = _selectedCategory == 'All'
                     ? allProducts
@@ -244,35 +277,23 @@ class _HomeScreenState extends State<HomeScreen> {
                           .where((p) => p.category == _selectedCategory)
                           .toList();
 
+                // Empty state: friendlier copy + illustration.
                 if (filteredProducts.isEmpty) {
-                  return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.inbox_outlined,
-                          size: 60,
-                          color: Colors.grey[350],
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          'No items found',
-                          style: const TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.black87,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Try selecting a different category',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ],
-                    ),
+                  final isAll = _selectedCategory == 'All';
+                  return EmptyState(
+                    icon: isAll
+                        ? Icons.storefront_outlined
+                        : Icons.filter_alt_off_outlined,
+                    title: isAll
+                        ? 'No listings yet'
+                        : 'Nothing in "$_selectedCategory"',
+                    subtitle: isAll
+                        ? 'Be the first to post something for sale on campus.'
+                        : 'Try a different category or check back later.',
+                    actionLabel: isAll ? null : 'Show all',
+                    onAction: isAll
+                        ? null
+                        : () => setState(() => _selectedCategory = 'All'),
                   );
                 }
 

@@ -4,9 +4,10 @@ import '../models/product.dart';
 import '../providers/auth_service.dart';
 import '../providers/product_provider.dart';
 import '../providers/message_provider.dart';
-import '../providers/favorites_provider.dart'; // <-- add this import
+import '../providers/favorites_provider.dart';
 import '../theme/app_theme.dart';
 import 'chat_screen.dart';
+import 'user_profile_screen.dart';
 
 const double _kCardRadius = 12;
 const EdgeInsets _kHPad = EdgeInsets.symmetric(horizontal: 16);
@@ -21,6 +22,7 @@ class ProductDetailScreen extends StatefulWidget {
 
 class _ProductDetailScreenState extends State<ProductDetailScreen> {
   int _currentImageIndex = 0;
+  bool _isDescriptionExpanded = false;
 
   @override
   Widget build(BuildContext context) {
@@ -33,43 +35,84 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
       context,
       listen: false,
     );
-    final favoritesProvider = Provider.of<FavoritesProvider>(
-      context,
-    ); // <-- add
+    final favoritesProvider = Provider.of<FavoritesProvider>(context);
+    final theme = Theme.of(context);
 
     final currentUserId = authService.user?.id;
     final isSeller = currentUserId == widget.product.sellerId;
     final isSold = widget.product.isSold;
+    final bool isFavorited = favoritesProvider.isFavorite(widget.product.id);
 
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: AppColors.backgroundOf(context),
       appBar: AppBar(
         title: Text(widget.product.title),
+        backgroundColor: AppColors.maroon,
+        foregroundColor: Colors.white,
         actions: [
-          // Favorite heart icon
+          // Favorite button
           IconButton(
             icon: Icon(
-              favoritesProvider.isFavorite(widget.product.id)
-                  ? Icons.favorite
-                  : Icons.favorite_border,
-              color: favoritesProvider.isFavorite(widget.product.id)
-                  ? Colors.red
-                  : Colors.white,
+              isFavorited ? Icons.favorite : Icons.favorite_border,
+              color: isFavorited ? Colors.red : Colors.white,
             ),
             onPressed: () async {
-              await favoritesProvider.toggleFavorite(widget.product.id);
-              // Optional: show snackbar feedback
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    favoritesProvider.isFavorite(widget.product.id)
-                        ? 'Added to favorites'
-                        : 'Removed from favorites',
+              try {
+                await favoritesProvider.toggleFavorite(widget.product.id);
+                if (!context.mounted) return;
+                setState(() {});
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      isFavorited
+                          ? 'Removed from favorites'
+                          : 'Added to favorites',
+                    ),
+                    duration: const Duration(seconds: 1),
                   ),
-                  duration: const Duration(seconds: 1),
-                ),
+                );
+              } catch (e) {
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Could not update favorite: $e'),
+                    backgroundColor: AppColors.danger,
+                  ),
+                );
+              }
+            },
+          ),
+          // Share button
+          IconButton(
+            icon: const Icon(Icons.share_outlined),
+            onPressed: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Share feature coming soon!')),
               );
             },
+          ),
+          // More menu (Report)
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            onSelected: (value) {
+              if (value == 'report') {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Report feature coming soon!')),
+                );
+              }
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(
+                value: 'report',
+                child: Row(
+                  children: [
+                    Icon(Icons.flag_outlined, color: AppColors.danger),
+                    SizedBox(width: 8),
+                    Text('Report'),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -78,9 +121,11 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Image carousel
+            // ══════════════════════════════════════════════════
+            // Image carousel (with overlay, dots, SOLD badge)
+            // ══════════════════════════════════════════════════
             SizedBox(
-              height: 280,
+              height: 350,
               width: double.infinity,
               child: Stack(
                 fit: StackFit.expand,
@@ -90,24 +135,57 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                       itemCount: widget.product.imageUrls.length,
                       onPageChanged: (index) =>
                           setState(() => _currentImageIndex = index),
-                      itemBuilder: (ctx, i) => Image.network(
-                        widget.product.imageUrls[i],
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) => Container(
-                          color: Colors.grey[300],
-                          child: const Icon(Icons.broken_image, size: 80),
+                      itemBuilder: (ctx, i) => Hero(
+                        tag: 'product_image_${widget.product.id}_$i',
+                        child: Image.network(
+                          widget.product.imageUrls[i],
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) =>
+                              Container(
+                                color: AppColors.surfaceAltOf(context),
+                                child: Icon(
+                                  Icons.broken_image,
+                                  size: 80,
+                                  color: AppColors.textTertiaryOf(context),
+                                ),
+                              ),
                         ),
                       ),
                     )
                   else
                     Container(
-                      color: Colors.grey[300],
-                      child: const Icon(Icons.image, size: 80),
+                      color: AppColors.surfaceAltOf(context),
+                      child: Icon(
+                        Icons.image,
+                        size: 80,
+                        color: AppColors.textTertiaryOf(context),
+                      ),
                     ),
-                  // Dot indicators
+
+                  // Bottom gradient over the image (keeps dots legible)
+                  Positioned(
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    height: 80,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.transparent,
+                            Colors.black.withValues(alpha: 0.6),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // Dot indicators (always white — over image)
                   if (widget.product.imageUrls.length > 1)
                     Positioned(
-                      bottom: 12,
+                      bottom: 16,
                       left: 0,
                       right: 0,
                       child: Row(
@@ -117,19 +195,20 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                           (index) => AnimatedContainer(
                             duration: const Duration(milliseconds: 250),
                             margin: const EdgeInsets.symmetric(horizontal: 3),
-                            width: index == _currentImageIndex ? 18 : 6,
+                            width: index == _currentImageIndex ? 20 : 6,
                             height: 6,
                             decoration: BoxDecoration(
                               color: index == _currentImageIndex
                                   ? Colors.white
-                                  : Colors.white.withOpacity(0.5),
+                                  : Colors.white.withValues(alpha: 0.5),
                               borderRadius: BorderRadius.circular(3),
                             ),
                           ),
                         ),
                       ),
                     ),
-                  // SOLD badge
+
+                  // SOLD badge (black chip — over image)
                   if (isSold)
                     Positioned(
                       top: 16,
@@ -140,7 +219,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                           vertical: 6,
                         ),
                         decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.75),
+                          color: Colors.black.withValues(alpha: 0.75),
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: const Text(
@@ -158,9 +237,11 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
               ),
             ),
 
-            const SizedBox(height: 16),
+            const SizedBox(height: 20),
 
-            // Title and price
+            // ══════════════════════════════════════════════════
+            // Title & Price
+            // ══════════════════════════════════════════════════
             Padding(
               padding: _kHPad,
               child: Column(
@@ -168,46 +249,116 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                 children: [
                   Text(
                     widget.product.title,
-                    style: const TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black87,
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontSize: 26,
+                      height: 1.2,
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '₱${widget.product.price.toStringAsFixed(2)}',
-                    style: const TextStyle(
-                      fontSize: 28,
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
                       color: AppColors.maroon,
-                      fontWeight: FontWeight.w700,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      '₱${widget.product.price.toStringAsFixed(2)}',
+                      style: const TextStyle(
+                        fontSize: 24,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
                 ],
               ),
             ),
 
-            const SizedBox(height: 16),
+            const SizedBox(height: 20),
 
+            // ══════════════════════════════════════════════════
             // Seller card
+            // ══════════════════════════════════════════════════
             Padding(
               padding: _kHPad,
               child: Card(
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(_kCardRadius),
                 ),
-                child: ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: AppColors.gold,
-                    child: Icon(Icons.person, color: Colors.white),
-                  ),
-                  title: Text(
-                    widget.product.sellerName,
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                  subtitle: Text(
-                    isSeller ? 'You are the seller' : 'Seller',
-                    style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                elevation: 2,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(_kCardRadius),
+                  onTap: isSeller
+                      ? null
+                      : () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => UserProfileScreen(
+                                userId: widget.product.sellerId,
+                                initialName: widget.product.sellerName,
+                              ),
+                            ),
+                          );
+                        },
+                  child: ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: AppColors.gold,
+                      child: Text(
+                        widget.product.sellerName.isNotEmpty
+                            ? widget.product.sellerName[0].toUpperCase()
+                            : '?',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    title: Text(
+                      widget.product.sellerName,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 16,
+                      ),
+                    ),
+                    subtitle: Text(
+                      isSeller ? 'You are the seller' : 'Tap to view profile',
+                      style: TextStyle(
+                        color: isSeller
+                            ? AppColors.brandOf(context)
+                            : AppColors.textSecondaryOf(context),
+                        fontSize: 13,
+                        fontWeight: isSeller
+                            ? FontWeight.w600
+                            : FontWeight.normal,
+                      ),
+                    ),
+                    trailing: !isSeller
+                        ? TextButton.icon(
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => UserProfileScreen(
+                                    userId: widget.product.sellerId,
+                                    initialName: widget.product.sellerName,
+                                  ),
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.chevron_right, size: 18),
+                            label: const Text('Profile'),
+                            style: TextButton.styleFrom(
+                              foregroundColor: AppColors.brandOf(context),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                              ),
+                            ),
+                          )
+                        : null,
                   ),
                 ),
               ),
@@ -215,62 +366,95 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
 
             const SizedBox(height: 16),
 
-            // Category and date
+            // ══════════════════════════════════════════════════
+            // Category & Posted
+            // ══════════════════════════════════════════════════
             Padding(
               padding: _kHPad,
               child: Row(
                 children: [
-                  Expanded(
-                    child: _InfoCard(
-                      icon: Icons.category_outlined,
-                      label: 'Category',
-                      value: widget.product.category,
-                    ),
+                  _AttributeChip(
+                    icon: Icons.category_outlined,
+                    label: widget.product.category,
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _InfoCard(
-                      icon: Icons.schedule,
-                      label: 'Posted',
-                      value: _formatDate(widget.product.createdAt),
-                    ),
+                  const SizedBox(width: 16),
+                  _AttributeChip(
+                    icon: Icons.access_time,
+                    label: _formatDate(widget.product.createdAt),
                   ),
                 ],
               ),
             ),
 
-            const SizedBox(height: 16),
+            const SizedBox(height: 20),
 
+            // ══════════════════════════════════════════════════
             // Description
+            // ══════════════════════════════════════════════════
             Padding(
               padding: _kHPad,
               child: Card(
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(_kCardRadius),
                 ),
+                elevation: 2,
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
+                      Text(
                         'Description',
-                        style: TextStyle(
+                        style: theme.textTheme.titleMedium?.copyWith(
                           fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.black87,
                         ),
                       ),
                       const SizedBox(height: 8),
-                      Text(
-                        widget.product.description.isEmpty
-                            ? 'No description provided.'
-                            : widget.product.description,
-                        style: TextStyle(
-                          fontSize: 15,
-                          height: 1.4,
-                          color: Colors.grey[800],
-                        ),
+                      StatefulBuilder(
+                        builder: (context, setStateBuilder) {
+                          final desc = widget.product.description;
+                          final bool isLong = desc.length > 150;
+                          final String displayText =
+                              isLong && !_isDescriptionExpanded
+                              ? '${desc.substring(0, 150)}...'
+                              : desc;
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                displayText.isNotEmpty
+                                    ? displayText
+                                    : 'No description provided.',
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  height: 1.5,
+                                  color: AppColors.textPrimaryOf(context),
+                                ),
+                              ),
+                              if (isLong)
+                                GestureDetector(
+                                  onTap: () {
+                                    setStateBuilder(() {
+                                      _isDescriptionExpanded =
+                                          !_isDescriptionExpanded;
+                                    });
+                                  },
+                                  child: Padding(
+                                    padding: const EdgeInsets.only(top: 8),
+                                    child: Text(
+                                      _isDescriptionExpanded
+                                          ? 'See less'
+                                          : 'See more',
+                                      style: TextStyle(
+                                        color: AppColors.brandOf(context),
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          );
+                        },
                       ),
                     ],
                   ),
@@ -281,18 +465,37 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
         ),
       ),
 
+      // ══════════════════════════════════════════════════════
       // Sticky bottom action bar
+      // ══════════════════════════════════════════════════════
       bottomNavigationBar: SafeArea(
-        child: Padding(
+        child: Container(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          decoration: BoxDecoration(
+            color: AppColors.surfaceOf(context),
+            boxShadow: [
+              BoxShadow(
+                offset: const Offset(0, -2),
+                blurRadius: 8,
+                color: AppColors.shadowOf(context),
+              ),
+            ],
+          ),
           child: isSeller
               ? Row(
                   children: [
                     if (!isSold)
                       Expanded(
                         child: ElevatedButton.icon(
-                          icon: const Icon(Icons.check),
+                          icon: const Icon(Icons.check_circle_outline),
                           label: const Text('Mark as Sold'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.brandOf(context),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
                           onPressed: () async {
                             await productProvider.markAsSold(widget.product.id);
                             if (context.mounted) Navigator.pop(context);
@@ -304,6 +507,10 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                       child: ElevatedButton.icon(
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.danger,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
                         ),
                         icon: const Icon(Icons.delete_outline),
                         label: const Text('Delete'),
@@ -347,6 +554,15 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                         child: ElevatedButton.icon(
                           icon: const Icon(Icons.chat_bubble_outline),
                           label: const Text('Message Seller'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.brandOf(context),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            elevation: 0,
+                          ),
                           onPressed: () async {
                             try {
                               final conversationId = await messageProvider
@@ -365,6 +581,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                                 );
                               }
                             } catch (e) {
+                              if (!context.mounted) return;
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(content: Text('Error: $e')),
                               );
@@ -376,14 +593,14 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                         width: double.infinity,
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         decoration: BoxDecoration(
-                          color: Colors.grey[200],
-                          borderRadius: BorderRadius.circular(8),
+                          color: AppColors.surfaceAltOf(context),
+                          borderRadius: BorderRadius.circular(10),
                         ),
                         child: Text(
                           'This item has been sold',
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                            color: Colors.grey[600],
+                            color: AppColors.textSecondaryOf(context),
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -393,7 +610,6 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     );
   }
 
-  // Helper to format date
   String _formatDate(DateTime date) {
     final now = DateTime.now();
     final difference = now.difference(date);
@@ -407,44 +623,30 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   }
 }
 
-// Info card widget
-class _InfoCard extends StatelessWidget {
+// ═════════════════════════════════════════════════════════════
+// ATTRIBUTE CHIP (category / posted)
+// ═════════════════════════════════════════════════════════════
+class _AttributeChip extends StatelessWidget {
   final IconData icon;
   final String label;
-  final String value;
-  const _InfoCard({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
+
+  const _AttributeChip({required this.icon, required this.label});
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(_kCardRadius),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, color: AppColors.maroon, size: 20),
-            const SizedBox(height: 8),
-            Text(
-              label,
-              style: const TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-            ),
-          ],
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: AppColors.textSecondaryOf(context)),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 14,
+            color: AppColors.textPrimaryOf(context),
+            fontWeight: FontWeight.w500,
+          ),
         ),
-      ),
+      ],
     );
   }
 }

@@ -1,51 +1,82 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class AuthService extends ChangeNotifier {
   final SupabaseClient _supabase = Supabase.instance.client;
   User? _user;
   String? _profileName;
+  String? _authMessage;
 
   User? get user => _user;
   String? get profileName => _profileName;
+  String? get authMessage => _authMessage;
 
   AuthService() {
-    _supabase.auth.onAuthStateChange.listen((data) async {
-      _user = data.session?.user;
+    _supabase.auth.onAuthStateChange.listen(
+      (data) async {
+        final session = data.session;
 
-      if (_user != null) {
-        try {
-          final profile = await _supabase
-              .from('profiles')
-              .select('name')
-              .eq('id', _user!.id)
-              .maybeSingle();
-          _profileName = profile?['name'];
-        } catch (_) {
+        if (session != null) {
+          final user = session.user;
+
+          // 🔒 Enforce @umindanao.edu.ph for ALL sign-in methods,
+          // including Google SSO.
+          if (user?.email == null || !isUMEmail(user!.email!)) {
+            await _supabase.auth.signOut();
+            _user = null;
+            _profileName = null;
+            // Surface a message the UI can display.
+            _authMessage =
+                'Only University of Mindanao (@umindanao.edu.ph) '
+                'accounts are allowed.';
+            notifyListeners();
+            return;
+          }
+
+          // ── 1. Set the user and notify IMMEDIATELY ────────────
+          // The UI transitions to MainScreen right away. The
+          // profile-name fetch below is a background nicety and
+          // must NOT block the login flow.
+          _authMessage = null;
+          _user = user;
+          notifyListeners();
+
+          // ── 2. Hydrate the profile name in the background ─────
+          try {
+            final profile = await _supabase
+                .from('profiles')
+                .select('name')
+                .eq('id', user.id)
+                .maybeSingle();
+            _profileName = profile?['name'];
+            notifyListeners();
+          } catch (e) {
+            debugPrint('Profile fetch failed (non-blocking): $e');
+            _profileName = null;
+          }
+        } else {
+          _user = null;
           _profileName = null;
+          notifyListeners();
         }
-      } else {
-        _profileName = null;
-      }
+      },
+      onError: (error, stackTrace) {
+        debugPrint('Auth state error: $error');
+      },
+    );
+  }
 
-      notifyListeners();
-    });
+  /// Called by the UI once it has shown [authMessage].
+  void clearAuthMessage() {
+    _authMessage = null;
   }
 
   bool isUMEmail(String email) => email.endsWith('@umindanao.edu.ph');
 
-  /// Creates the account only. Does NOT send the OTP — that is a
-  /// separate, non-blocking step (see [sendEmailOtp]) so a slow or
-  /// failed email never prevents the user from reaching the PIN screen.
-  ///
-  /// If the email already exists but hasn't completed verification yet
-  /// (e.g. a previous signup attempt succeeded but the OTP email step
-  /// failed or timed out), this treats it as a soft "already started"
-  /// case rather than a hard block — the caller should still move on
-  /// to the OTP screen and try sending/resending a code.
-  ///
-  /// Only throws when the email genuinely belongs to a fully confirmed,
-  /// pre-existing account.
+  // ============================================================
+  // SIGN UP (email/password)
+  // ============================================================
   Future<void> signUp(String email, String password, {String? name}) async {
     final trimmedEmail = email.trim();
     final trimmedName = name?.trim();
@@ -69,36 +100,28 @@ class AuthService extends ChangeNotifier {
             .eq('id', user.id);
       }
 
-      // If Supabase returned a user but they're already confirmed,
-      // this really is a duplicate, fully-registered account.
       if (user != null && user.emailConfirmedAt != null) {
         await _supabase.auth.signOut();
         throw 'This email is already registered. Please sign in.';
       }
 
-      // New account, or an existing-but-unconfirmed one that Supabase
-      // returned without error (common when "Confirm email" resend
-      // is allowed) — sign out and let the caller proceed to the OTP
-      // screen either way.
       await _supabase.auth.signOut();
     } on AuthException catch (e) {
       final msg = e.message.toLowerCase();
-      // Supabase's own "already registered" error can fire even for
-      // unconfirmed accounts depending on project settings. Since we
-      // can't verify confirmation status client-side in that case,
-      // treat it as soft: let the user proceed to the OTP screen and
-      // try to get a code, rather than hard-blocking their retry.
       if (msg.contains('already registered')) {
         return;
       }
       throw _friendlyAuthError(e.message);
     } on String {
-      rethrow; // our own thrown messages above, already clean
+      rethrow;
     } catch (e) {
       throw 'Something went wrong while creating your account. Please try again.';
     }
   }
 
+  // ============================================================
+  // SIGN IN (email/password)
+  // ============================================================
   Future<void> signIn(String email, String password) async {
     try {
       await _supabase.auth.signInWithPassword(
@@ -112,7 +135,38 @@ class AuthService extends ChangeNotifier {
     }
   }
 
-  /// Send OTP (initial send or resend) — used by both signup and login flows.
+  // ============================================================
+  // GOOGLE SSO
+  // ============================================================
+  /// Signs the user in via Google OAuth through Supabase.
+  /// The result is delivered back through the deep link
+  /// `io.supabase.umcampus-marketplace://login-callback`, and the
+  /// onAuthStateChange listener above will enforce the UM domain.
+  Future<void> signInWithGoogle() async {
+    try {
+      final String redirectUrl = kIsWeb
+          ? Uri.base.origin
+          : 'io.supabase.umcampus-marketplace://login-callback';
+
+      await _supabase.auth.signInWithOAuth(
+        OAuthProvider.google,
+        redirectTo: redirectUrl,
+        scopes: 'email profile openid',
+        authScreenLaunchMode: kIsWeb
+            ? LaunchMode.platformDefault
+            : LaunchMode.externalApplication,
+      );
+      // Result is handled by the onAuthStateChange listener.
+    } on AuthException catch (e) {
+      throw _friendlyAuthError(e.message);
+    } catch (e) {
+      throw 'Failed to sign in with Google. Please try again.';
+    }
+  }
+
+  // ============================================================
+  // OTP (signup + login flows)
+  // ============================================================
   Future<void> sendEmailOtp(String email, {String? name}) async {
     final trimmedEmail = email.trim();
     if (!isUMEmail(trimmedEmail)) {
@@ -142,7 +196,7 @@ class AuthService extends ChangeNotifier {
         email: email.trim(),
         token: token.trim(),
       );
-      // Auth state listener will fetch profile automatically
+      // Auth state listener will fetch profile automatically.
     } on AuthException catch (e) {
       throw _friendlyAuthError(e.message);
     } catch (e) {
@@ -150,7 +204,6 @@ class AuthService extends ChangeNotifier {
     }
   }
 
-  /// Alias kept for readability at call sites.
   Future<void> resendEmailOtp(String email) => sendEmailOtp(email);
 
   Future<void> updateProfileName(String name) async {
@@ -165,11 +218,92 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ============================================================
+  // FORGOT PASSWORD (RESET VIA OTP)
+  // ============================================================
+  Future<void> sendPasswordResetOtp(String email) async {
+    final trimmedEmail = email.trim();
+    if (!isUMEmail(trimmedEmail)) {
+      throw 'Only University of Mindanao emails are allowed.';
+    }
+    try {
+      await _supabase.auth.resetPasswordForEmail(trimmedEmail);
+    } on AuthException catch (e) {
+      throw _friendlyAuthError(e.message);
+    } on String {
+      rethrow;
+    } catch (e) {
+      throw 'Failed to send reset code. Please try again.';
+    }
+  }
+
+  Future<void> verifyPasswordResetOtp({
+    required String email,
+    required String token,
+  }) async {
+    try {
+      await _supabase.auth.verifyOTP(
+        type: OtpType.recovery,
+        email: email.trim(),
+        token: token.trim(),
+      );
+    } on AuthException catch (e) {
+      throw _friendlyAuthError(e.message);
+    } catch (e) {
+      throw 'Invalid or expired code. Please request a new one.';
+    }
+  }
+
+  Future<void> updatePassword(String newPassword) async {
+    try {
+      await _supabase.auth.updateUser(
+        UserAttributes(password: newPassword.trim()),
+      );
+    } on AuthException catch (e) {
+      throw _friendlyAuthError(e.message);
+    } catch (e) {
+      throw 'Failed to update password. Please try again.';
+    }
+  }
+
+  // ============================================================
+  // CHANGE PASSWORD (LOGGED-IN USER)
+  // ============================================================
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) throw 'You must be logged in.';
+    if (user.email == null) throw 'No email associated with this account.';
+
+    try {
+      await _supabase.auth.signInWithPassword(
+        email: user.email!,
+        password: currentPassword.trim(),
+      );
+
+      await _supabase.auth.updateUser(
+        UserAttributes(password: newPassword.trim()),
+      );
+    } on AuthException catch (e) {
+      throw _friendlyAuthError(e.message);
+    } catch (e) {
+      throw 'Failed to change password. Please try again.';
+    }
+  }
+
+  // ============================================================
+  // SIGN OUT
+  // ============================================================
   Future<void> signOut() async {
     await _supabase.auth.signOut();
     _profileName = null;
   }
 
+  // ============================================================
+  // ERROR MESSAGING
+  // ============================================================
   String _friendlyAuthError(String? message) {
     if (message == null) return 'Authentication failed. Please try again.';
 
@@ -195,6 +329,15 @@ class AuthService extends ChangeNotifier {
     if (message.toLowerCase().contains('token has expired') ||
         message.toLowerCase().contains('invalid token')) {
       return 'That code is invalid or expired. Please request a new one.';
+    }
+    if (message.contains('New password should be different')) {
+      return 'New password must be different from the old one.';
+    }
+    if (message.contains('Password should be at least')) {
+      return 'Password must be at least 6 characters.';
+    }
+    if (message.contains('same as the old password')) {
+      return 'New password must be different from the current one.';
     }
 
     return message;

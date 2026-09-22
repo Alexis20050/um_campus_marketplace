@@ -37,6 +37,9 @@ dependencies:
   provider: ^6.1.1  # State management
   supabase_flutter: ^2.17.2    # Supabase backend (auth, database, realtime)
   image_picker: ^1.0.4
+  flutter_image_compress: ^2.3.0  # Client-side image compression before upload
+  app_links: ^6.1.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
