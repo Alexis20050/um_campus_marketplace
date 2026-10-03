@@ -1,115 +1,278 @@
 import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../models/product.dart';
 
 class ProductProvider extends ChangeNotifier {
   final SupabaseClient _supabase = Supabase.instance.client;
 
-  // Private controller to broadcast product updates to the UI
-  final StreamController<List<Product>> _productsController =
-      StreamController<List<Product>>.broadcast();
+  List<Product> _products = [];
 
-  // Cache the latest product list so new listeners get data instantly
-  List<Product> _cachedProducts = [];
+  bool _isLoading = true;
+  String? _error;
 
-  // Public stream consumed by HomeScreen
-  Stream<List<Product>> get productsStream => _productsController.stream;
+  StreamSubscription<AuthState>? _authSubscription;
+  StreamSubscription<List<Map<String, dynamic>>>? _productsSubscription;
 
-  // Keep track of the realtime subscription so we can cancel it later
-  StreamSubscription? _productsSubscription;
+  Timer? _debounce;
 
-  // Constructor: initialize auth listener and start realtime
+  bool _disposed = false;
+  int _generation = 0;
+
+  // ============================================================
+  // GETTERS
+  // ============================================================
+
+  List<Product> get products => List.unmodifiable(_products);
+
+  bool get isLoading => _isLoading;
+
+  String? get error => _error;
+
+  SupabaseClient get client => _supabase;
+
+  String? get currentUserId => _supabase.auth.currentUser?.id;
+
+  // ============================================================
+  // CONSTRUCTOR
+  // ============================================================
+
   ProductProvider() {
-    _setupAuthListener();
-    _startProductsSubscription();
-
-    // When a new listener subscribes, immediately provide the cached list
-    _productsController.onListen = () {
-      if (_cachedProducts.isNotEmpty) {
-        _productsController.add(_cachedProducts);
-      }
-    };
-  }
-
-  // Listen to Supabase auth changes (login, logout, token refresh)
-  void _setupAuthListener() {
-    _supabase.auth.onAuthStateChange.listen((data) {
-      // When auth state changes, restart the products subscription
-      // to use the new token (if any). This also handles logout.
+    _authSubscription = _supabase.auth.onAuthStateChange.listen((_) {
       _startProductsSubscription();
     });
+
+    _startProductsSubscription();
   }
 
-  // Start or restart the realtime subscription for products
+  // ============================================================
+  // RETRY
+  // ============================================================
+
+  Future<void> retry() async {
+    await _startProductsSubscription();
+  }
+
+  // ============================================================
+  // PUBLIC MARKETPLACE PRODUCT STREAM
+  //
+  // Shows:
+  // - available products
+  // - reserved products
+  //
+  // Hides:
+  // - sold products
+  // - archived products
+  // - moderator-hidden products
+  // ============================================================
+
   Future<void> _startProductsSubscription() async {
-    // Cancel existing subscription (if any) to avoid duplicates
-    await _productsSubscription?.cancel();
+    if (_disposed) return;
+
+    final generation = ++_generation;
+
+    _debounce?.cancel();
+
+    final previousSubscription = _productsSubscription;
+
     _productsSubscription = null;
 
-    // Ensure session token is fresh before subscribing
-    final session = _supabase.auth.currentSession;
-    if (session != null) {
-      // If token expires in less than 2 minutes, refresh it
-      final expiresAt = session.expiresAt;
-      final now = DateTime.now().millisecondsSinceEpoch / 1000;
-      if (expiresAt != null && (expiresAt - now) < 120) {
-        try {
-          await _supabase.auth.refreshSession();
-        } catch (_) {
-          // If refresh fails, user may need to re-login.
-          // Emit empty list and stop.
-          _productsController.add([]);
-          return;
-        }
+    _isLoading = true;
+    _error = null;
+
+    notifyListeners();
+
+    void fail(Object error) {
+      if (_disposed || generation != _generation) {
+        return;
       }
+
+      _debounce?.cancel();
+
+      debugPrint('Product realtime error: $error');
+
+      _error = 'Unable to load listings. Please try again.';
+      _isLoading = false;
+
+      notifyListeners();
     }
 
-    // Create a new realtime subscription using the (possibly refreshed) token
-    _productsSubscription = _supabase
-        .from('products')
-        .stream(primaryKey: ['id'])
-        .order('created_at', ascending: false)
-        .listen(
-          (rows) {
-            final products = rows
-                .where((row) => row['is_sold'] == false)
-                .map((row) => Product.fromMap(row))
-                .toList();
-            _cachedProducts = products; // update cache
-            _productsController.add(products); // emit to current listeners
-          },
-          onError: (error) {
-            // You can choose to emit empty or keep last data
-            debugPrint('Product realtime error: $error');
-          },
-        );
+    try {
+      await previousSubscription?.cancel();
+
+      if (_disposed || generation != _generation) {
+        return;
+      }
+
+      _productsSubscription = _supabase
+          .from('products')
+          .stream(primaryKey: ['id'])
+          .order('created_at', ascending: false)
+          .listen((rows) {
+            if (_disposed || generation != _generation) {
+              return;
+            }
+
+            _debounce?.cancel();
+
+            _debounce = Timer(const Duration(milliseconds: 200), () {
+              if (_disposed || generation != _generation) {
+                return;
+              }
+
+              try {
+                _products = rows
+                    .where(
+                      (row) =>
+                          row['is_sold'] != true &&
+                          row['is_archived'] != true &&
+                          (row['moderation_status'] ?? 'active') == 'active',
+                    )
+                    .map(Product.fromMap)
+                    .toList();
+
+                _error = null;
+                _isLoading = false;
+
+                notifyListeners();
+              } catch (e) {
+                fail(e);
+              }
+            });
+          }, onError: fail);
+    } catch (e) {
+      fail(e);
+    }
   }
 
-  // A seller's own products (includes sold items)
+  // ============================================================
+  // PUBLIC SELLER PROFILE PRODUCTS
+  //
+  // Used when viewing another user's seller profile.
+  //
+  // Hides:
+  // - archived
+  // - moderator-hidden
+  //
+  // Can include:
+  // - active
+  // - reserved
+  // - sold
+  // ============================================================
+
   Stream<List<Product>> sellerProductsStream(String sellerId) {
-    // This method returns a stream directly; no need to manage manually.
-    // It will also suffer from token expiry if not refreshed,
-    // but for simplicity, the caller can refresh if needed.
     return _supabase
         .from('products')
         .stream(primaryKey: ['id'])
         .eq('seller_id', sellerId)
         .order('created_at', ascending: false)
-        .map((rows) => rows.map((row) => Product.fromMap(row)).toList());
+        .map(
+          (rows) => rows
+              .where(
+                (row) =>
+                    row['is_archived'] != true &&
+                    (row['moderation_status'] ?? 'active') == 'active',
+              )
+              .map(Product.fromMap)
+              .toList(),
+        );
   }
 
-  // Fetch a public profile row for a given user id (used by UserProfileScreen)
+  // ============================================================
+  // ALL SELLER PRODUCTS
+  //
+  // Used ONLY by My Listings.
+  //
+  // Includes:
+  // - active
+  // - reserved
+  // - sold
+  // - archived
+  //
+  // This method fixes your analyzer error:
+  // sellerAllProductsStream isn't defined
+  // ============================================================
+
+  Stream<List<Product>> sellerAllProductsStream(String sellerId) {
+    return _supabase
+        .from('products')
+        .stream(primaryKey: ['id'])
+        .eq('seller_id', sellerId)
+        .order('created_at', ascending: false)
+        .map((rows) => rows.map(Product.fromMap).toList());
+  }
+
+  /// Refresh the seller's existing view without opening another realtime stream.
+  Future<List<Product>> fetchSellerProducts(String sellerId) async {
+    if (sellerId.trim().isEmpty) return [];
+    final rows = await _supabase
+        .from('products')
+        .select()
+        .eq('seller_id', sellerId)
+        .order('created_at', ascending: false);
+    return rows.map(Product.fromMap).toList();
+  }
+
+  // ============================================================
+  // FETCH SINGLE PRODUCT
+  // ============================================================
+
+  Future<Product?> fetchProductById(String productId) async {
+    if (productId.trim().isEmpty) {
+      return null;
+    }
+
+    final response = await _supabase
+        .from('products')
+        .select()
+        .eq('id', productId)
+        .maybeSingle();
+
+    if (response == null) {
+      return null;
+    }
+
+    return Product.fromMap(Map<String, dynamic>.from(response));
+  }
+
+  // ============================================================
+  // FETCH PROFILE
+  // ============================================================
+
   Future<Map<String, dynamic>?> fetchProfileById(String userId) async {
-    final data = await _supabase
+    if (userId.trim().isEmpty) {
+      return null;
+    }
+
+    final response = await _supabase
         .from('profiles')
-        .select('id, name, email, created_at')
+        .select('''
+          id,
+          name,
+          email,
+          created_at,
+          role,
+          account_status
+          ''')
         .eq('id', userId)
         .maybeSingle();
-    return data;
+
+    if (response == null) {
+      return null;
+    }
+
+    return Map<String, dynamic>.from(response);
   }
 
-  // Add a new product
+  // ============================================================
+  // ADD PRODUCT
+  //
+  // itemCondition has a fallback for compatibility with older
+  // screens, while newer screens should pass it explicitly.
+  // ============================================================
+
   Future<void> addProduct({
     required String sellerId,
     required String sellerName,
@@ -117,65 +280,235 @@ class ProductProvider extends ChangeNotifier {
     required String description,
     required double price,
     required String category,
+    String itemCondition = 'Good',
     required List<String> imageUrls,
   }) async {
+    if (sellerId.trim().isEmpty) {
+      throw ArgumentError('Seller ID is required.');
+    }
+
+    if (title.trim().isEmpty) {
+      throw ArgumentError('Product title is required.');
+    }
+
+    if (price < 0) {
+      throw ArgumentError('Price cannot be negative.');
+    }
+
     await _supabase.from('products').insert({
       'seller_id': sellerId,
-      'seller_name': sellerName,
-      'title': title,
-      'description': description,
+      'seller_name': sellerName.trim(),
+      'title': title.trim(),
+      'description': description.trim(),
       'price': price,
       'category': category,
+      'item_condition': itemCondition,
       'image_urls': imageUrls,
       'is_sold': false,
+      'is_archived': false,
+      'moderation_status': 'active',
     });
+
     notifyListeners();
   }
 
-  // Update an existing product's details
+  // ============================================================
+  // UPDATE PRODUCT
+  //
+  // itemCondition is optional so your existing Edit Listing
+  // screen remains compatible.
+  // ============================================================
+
   Future<void> updateProduct({
     required String id,
     required String title,
     required String description,
     required double price,
     required String category,
+    String? itemCondition,
     required List<String> imageUrls,
   }) async {
+    if (id.trim().isEmpty) {
+      throw ArgumentError('Product ID is required.');
+    }
+
+    if (title.trim().isEmpty) {
+      throw ArgumentError('Product title is required.');
+    }
+
+    if (price < 0) {
+      throw ArgumentError('Price cannot be negative.');
+    }
+
+    final updates = <String, dynamic>{
+      'title': title.trim(),
+      'description': description.trim(),
+      'price': price,
+      'category': category,
+      'image_urls': imageUrls,
+    };
+
+    if (itemCondition != null && itemCondition.trim().isNotEmpty) {
+      updates['item_condition'] = itemCondition.trim();
+    }
+
+    await _supabase.from('products').update(updates).eq('id', id);
+
+    notifyListeners();
+  }
+
+  // ============================================================
+  // RESERVE PRODUCT
+  //
+  // Secure Supabase RPC verifies:
+  // - current user is seller
+  // - buyer exists
+  // - conversation belongs to product
+  // - product is not sold
+  // ============================================================
+
+  Future<void> reserveProduct({required String conversationId}) async {
+    if (conversationId.trim().isEmpty) {
+      throw ArgumentError('Conversation ID is required.');
+    }
+
+    await _supabase.rpc(
+      'reserve_product',
+      params: {'p_conversation_id': conversationId},
+    );
+
+    notifyListeners();
+  }
+
+  // ============================================================
+  // CANCEL RESERVATION
+  // ============================================================
+
+  Future<void> cancelReservation(String productId) async {
+    if (productId.trim().isEmpty) {
+      throw ArgumentError('Product ID is required.');
+    }
+
+    await _supabase.rpc(
+      'cancel_product_reservation',
+      params: {'p_product_id': productId},
+    );
+
+    notifyListeners();
+  }
+
+  // ============================================================
+  // ARCHIVE PRODUCT
+  //
+  // Archive preserves sold/reserved state information rather
+  // than deleting the listing.
+  // ============================================================
+
+  Future<void> archiveProduct(String productId) async {
+    if (productId.trim().isEmpty) {
+      throw ArgumentError('Product ID is required.');
+    }
+
     await _supabase
         .from('products')
-        .update({
-          'title': title,
-          'description': description,
-          'price': price,
-          'category': category,
-          'image_urls': imageUrls,
-        })
-        .eq('id', id);
+        .update({'is_archived': true})
+        .eq('id', productId);
+
     notifyListeners();
   }
 
-  // Mark a product as sold
-  Future<void> markAsSold(String id) async {
-    await _supabase.from('products').update({'is_sold': true}).eq('id', id);
+  // ============================================================
+  // RESTORE PRODUCT
+  // ============================================================
+
+  Future<void> restoreProduct(String productId) async {
+    if (productId.trim().isEmpty) {
+      throw ArgumentError('Product ID is required.');
+    }
+
+    await _supabase
+        .from('products')
+        .update({'is_archived': false})
+        .eq('id', productId);
+
     notifyListeners();
   }
 
-  // Relist a sold item
-  Future<void> markAsAvailable(String id) async {
-    await _supabase.from('products').update({'is_sold': false}).eq('id', id);
+  // ============================================================
+  // LEGACY COMPATIBILITY
+  //
+  // Keep these temporarily because some existing screens may
+  // still reference them.
+  //
+  // Your normal sold flow should use RatingProvider.completeSale()
+  // instead of markAsSold().
+  // ============================================================
+
+  Future<void> markAsSold(String productId) async {
+    if (productId.trim().isEmpty) {
+      throw ArgumentError('Product ID is required.');
+    }
+
+    await _supabase
+        .from('products')
+        .update({'is_sold': true})
+        .eq('id', productId);
+
     notifyListeners();
   }
 
-  // Delete a product
-  Future<void> deleteProduct(String id) async {
-    await _supabase.from('products').delete().eq('id', id);
+  Future<void> markAsAvailable(String productId) async {
+    if (productId.trim().isEmpty) {
+      throw ArgumentError('Product ID is required.');
+    }
+
+    await _supabase
+        .from('products')
+        .update({'is_sold': false})
+        .eq('id', productId);
+
     notifyListeners();
   }
+
+  // ============================================================
+  // DELETE
+  //
+  // Kept only for compatibility with older screens.
+  // Prefer Archive for normal marketplace usage.
+  // ============================================================
+
+  Future<void> deleteProduct(String productId) async {
+    if (productId.trim().isEmpty) {
+      throw ArgumentError('Product ID is required.');
+    }
+
+    await _supabase.from('products').delete().eq('id', productId);
+
+    notifyListeners();
+  }
+
+  // ============================================================
+  // MANUAL REFRESH
+  // ============================================================
+
+  Future<void> refreshProducts() async {
+    await _startProductsSubscription();
+  }
+
+  // ============================================================
+  // DISPOSE
+  // ============================================================
 
   @override
   void dispose() {
+    _disposed = true;
+
+    ++_generation;
+
+    _authSubscription?.cancel();
     _productsSubscription?.cancel();
-    _productsController.close();
+    _debounce?.cancel();
+
     super.dispose();
   }
 }

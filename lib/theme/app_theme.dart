@@ -1,62 +1,51 @@
 import 'package:flutter/material.dart';
 
-// ─────────────────────────────────────────────────────────────
-// BRAND PALETTE (fixed brand identity, does not change per theme)
-// ─────────────────────────────────────────────────────────────
 class AppColors {
-  // Primary brand
+  // Brand
   static const maroon = Color(0xFF800000);
   static const maroonDark = Color(0xFF5C0000);
   static const maroonLight = Color(0xFFF5E6E6);
 
-  // Accent
   static const gold = Color(0xFFD4AF37);
 
   // Semantic
-  static const danger = Color(0xFFB00020);
+  static const danger = Color(0xFFB3261E);
   static const success = Color(0xFF2E7D32);
 
-  // ─────────────────────────────────────────────────────────────
-  // LIGHT SCHEME
-  // ─────────────────────────────────────────────────────────────
-  static const lightBackground = Color(0xFFF5F5F5);
+  // Light
+  static const lightBackground = Color(0xFFF8F6F3);
   static const lightSurface = Colors.white;
   static const lightSurfaceAlt = Color(0xFFFAFAFA);
   static const lightBorder = Color(0xFFE0E0E0);
+
   static const lightTextPrimary = Color(0xFF1A1A1A);
   static const lightTextSecondary = Color(0xFF6B6B6B);
   static const lightTextTertiary = Color(0xFF9E9E9E);
 
-  // ─────────────────────────────────────────────────────────────
-  // DARK SCHEME
-  // Lifted from pure black to a warm neutral so the maroon
-  // brand color reads well without glare.
-  // ─────────────────────────────────────────────────────────────
-  static const darkBackground = Color(0xFF121212);
-  static const darkSurface = Color(0xFF1E1E1E);
-  static const darkSurfaceAlt = Color(0xFF252525);
-  static const darkElevated = Color(0xFF2A2A2A);
-  static const darkBorder = Color(0xFF2E2E2E);
-  static const darkTextPrimary = Color(0xFFF0F0F0);
-  static const darkTextSecondary = Color(0xFFB0B0B0);
-  static const darkTextTertiary = Color(0xFF808080);
+  // Dark
+  static const darkBackground = Color(0xFF100E0F);
+  static const darkSurface = Color(0xFF191617);
+  static const darkSurfaceAlt = Color(0xFF211D1E);
+  static const darkElevated = Color(0xFF292324);
+  static const darkBorder = Color(0xFF3A3032);
 
-  // Slightly brighter maroon for dark surfaces — the pure
-  // #800000 reads too muddy against near-black.
-  static const maroonOnDark = Color(0xFFB22222);
-  static const maroonLightOnDark = Color(0xFF3A1A1A);
+  static const darkTextPrimary = Color(0xFFF7F1F2);
+  static const darkTextSecondary = Color(0xFFC8BEC0);
+  static const darkTextTertiary = Color(0xFF95888B);
 
-  // ─────────────────────────────────────────────────────────────
-  // BACKWARDS-COMPATIBLE ALIASES
-  // Existing widgets that reference these still compile.
-  // ─────────────────────────────────────────────────────────────
+  // Strong enough to work as a button background with white text.
+  static const maroonOnDark = Color(0xFFB93643);
+
+  // Soft maroon surface for selected tabs/chips/navigation.
+  static const maroonLightOnDark = Color(0xFF35191D);
+
+  // Semantic dark-mode colors
+  static const successOnDark = Color(0xFF81C784);
+  static const dangerTextOnDark = Color(0xFFFFB4AB);
+
   static const background = lightBackground;
   static const surface = lightSurface;
 
-  // ─────────────────────────────────────────────────────────────
-  // CONTEXT-AWARE HELPERS
-  // Preferred in new code — flip automatically with the theme.
-  // ─────────────────────────────────────────────────────────────
   static bool _isDark(BuildContext context) =>
       Theme.of(context).brightness == Brightness.dark;
 
@@ -81,32 +70,30 @@ class AppColors {
   static Color textTertiaryOf(BuildContext context) =>
       _isDark(context) ? darkTextTertiary : lightTextTertiary;
 
-  /// A brand color that stays legible on both light and dark
-  /// surfaces. In light mode returns the standard maroon; in dark
-  /// mode returns a slightly brighter maroon.
   static Color brandOf(BuildContext context) =>
       _isDark(context) ? maroonOnDark : maroon;
 
-  /// A soft brand tint for backgrounds (pills, avatar circles).
   static Color brandSoftOf(BuildContext context) =>
       _isDark(context) ? maroonLightOnDark : maroonLight;
 
-  /// A hairline shadow that's subtle on light and nearly invisible
-  /// on dark — used to keep "elevated" cards from looking flat.
+  static Color successOf(BuildContext context) =>
+      _isDark(context) ? successOnDark : success;
+
+  static Color dangerTextOf(BuildContext context) =>
+      _isDark(context) ? dangerTextOnDark : danger;
+
   static Color shadowOf(BuildContext context) => _isDark(context)
-      ? Colors.black.withOpacity(0.4)
-      : Colors.black.withOpacity(0.06);
+      ? Colors.black.withValues(alpha: 0.50)
+      : Colors.black.withValues(alpha: 0.06);
 }
 
-// ─────────────────────────────────────────────────────────────
-// LIGHT THEME
-// ─────────────────────────────────────────────────────────────
 final ThemeData lightTheme = ThemeData(
   brightness: Brightness.light,
   useMaterial3: true,
   primaryColor: AppColors.maroon,
   scaffoldBackgroundColor: AppColors.lightBackground,
   canvasColor: AppColors.lightSurface,
+
   colorScheme: const ColorScheme.light(
     primary: AppColors.maroon,
     onPrimary: Colors.white,
@@ -116,19 +103,21 @@ final ThemeData lightTheme = ThemeData(
     onSurface: AppColors.lightTextPrimary,
     error: AppColors.danger,
   ),
+
   appBarTheme: const AppBarTheme(
     backgroundColor: AppColors.maroon,
     foregroundColor: Colors.white,
     elevation: 0,
     centerTitle: false,
-    systemOverlayStyle: null,
   ),
+
   cardTheme: CardThemeData(
     color: AppColors.lightSurface,
     elevation: 1,
-    shadowColor: Colors.black.withOpacity(0.08),
+    shadowColor: Colors.black.withValues(alpha: 0.08),
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
   ),
+
   inputDecorationTheme: InputDecorationTheme(
     filled: true,
     fillColor: AppColors.lightSurfaceAlt,
@@ -147,15 +136,18 @@ final ThemeData lightTheme = ThemeData(
     labelStyle: const TextStyle(color: AppColors.lightTextSecondary),
     hintStyle: const TextStyle(color: AppColors.lightTextTertiary),
   ),
+
   elevatedButtonTheme: ElevatedButtonThemeData(
     style: ElevatedButton.styleFrom(
       backgroundColor: AppColors.maroon,
       foregroundColor: Colors.white,
+      minimumSize: const Size(48, 48),
       elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
     ),
   ),
+
   outlinedButtonTheme: OutlinedButtonThemeData(
     style: OutlinedButton.styleFrom(
       foregroundColor: AppColors.maroon,
@@ -164,31 +156,42 @@ final ThemeData lightTheme = ThemeData(
       textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
     ),
   ),
+
   textButtonTheme: TextButtonThemeData(
     style: TextButton.styleFrom(
       foregroundColor: AppColors.maroon,
       textStyle: const TextStyle(fontWeight: FontWeight.w600),
     ),
   ),
+
   dividerTheme: const DividerThemeData(
     color: AppColors.lightBorder,
     thickness: 1,
     space: 1,
   ),
+
   snackBarTheme: const SnackBarThemeData(behavior: SnackBarBehavior.floating),
+
+  navigationBarTheme: const NavigationBarThemeData(
+    backgroundColor: AppColors.lightSurface,
+    indicatorColor: AppColors.maroonLight,
+  ),
+
   bottomNavigationBarTheme: const BottomNavigationBarThemeData(
     backgroundColor: AppColors.lightSurface,
     selectedItemColor: AppColors.maroon,
     unselectedItemColor: AppColors.lightTextTertiary,
     showUnselectedLabels: true,
   ),
+
   chipTheme: ChipThemeData(
     backgroundColor: AppColors.lightSurfaceAlt,
-    selectedColor: AppColors.maroon,
+    selectedColor: AppColors.maroonLight,
     labelStyle: const TextStyle(color: AppColors.lightTextPrimary),
     side: const BorderSide(color: AppColors.lightBorder),
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
   ),
+
   textTheme: const TextTheme(
     bodyLarge: TextStyle(color: AppColors.lightTextPrimary),
     bodyMedium: TextStyle(color: AppColors.lightTextPrimary),
@@ -204,15 +207,13 @@ final ThemeData lightTheme = ThemeData(
   ),
 );
 
-// ─────────────────────────────────────────────────────────────
-// DARK THEME
-// ─────────────────────────────────────────────────────────────
 final ThemeData darkTheme = ThemeData(
   brightness: Brightness.dark,
   useMaterial3: true,
   primaryColor: AppColors.maroonOnDark,
   scaffoldBackgroundColor: AppColors.darkBackground,
   canvasColor: AppColors.darkSurface,
+
   colorScheme: const ColorScheme.dark(
     primary: AppColors.maroonOnDark,
     onPrimary: Colors.white,
@@ -220,25 +221,34 @@ final ThemeData darkTheme = ThemeData(
     onSecondary: Colors.black,
     surface: AppColors.darkSurface,
     onSurface: AppColors.darkTextPrimary,
-    error: AppColors.danger,
+    error: AppColors.dangerTextOnDark,
+    onError: Color(0xFF690005),
   ),
+
   appBarTheme: const AppBarTheme(
     backgroundColor: AppColors.maroonDark,
     foregroundColor: Colors.white,
+    surfaceTintColor: Colors.transparent,
     elevation: 0,
     centerTitle: false,
   ),
+
   cardTheme: CardThemeData(
     color: AppColors.darkSurface,
+    surfaceTintColor: Colors.transparent,
     elevation: 0,
+    shadowColor: Colors.black,
     shape: RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(12),
-      side: const BorderSide(color: AppColors.darkBorder, width: 0.5),
+      side: const BorderSide(color: AppColors.darkBorder, width: 0.7),
     ),
   ),
+
   inputDecorationTheme: InputDecorationTheme(
     filled: true,
     fillColor: AppColors.darkSurfaceAlt,
+    prefixIconColor: AppColors.darkTextSecondary,
+    suffixIconColor: AppColors.darkTextSecondary,
     border: OutlineInputBorder(
       borderRadius: BorderRadius.circular(10),
       borderSide: const BorderSide(color: AppColors.darkBorder),
@@ -249,53 +259,92 @@ final ThemeData darkTheme = ThemeData(
     ),
     focusedBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(10),
-      borderSide: const BorderSide(color: AppColors.maroonOnDark, width: 1.6),
+      borderSide: const BorderSide(color: AppColors.maroonOnDark, width: 1.7),
+    ),
+    errorBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(10),
+      borderSide: const BorderSide(color: AppColors.dangerTextOnDark),
+    ),
+    focusedErrorBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(10),
+      borderSide: const BorderSide(
+        color: AppColors.dangerTextOnDark,
+        width: 1.7,
+      ),
     ),
     labelStyle: const TextStyle(color: AppColors.darkTextSecondary),
     hintStyle: const TextStyle(color: AppColors.darkTextTertiary),
   ),
+
   elevatedButtonTheme: ElevatedButtonThemeData(
     style: ElevatedButton.styleFrom(
       backgroundColor: AppColors.maroonOnDark,
       foregroundColor: Colors.white,
+      disabledBackgroundColor: AppColors.darkElevated,
+      disabledForegroundColor: AppColors.darkTextTertiary,
+      minimumSize: const Size(48, 48),
       elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
     ),
   ),
+
   outlinedButtonTheme: OutlinedButtonThemeData(
     style: OutlinedButton.styleFrom(
-      foregroundColor: AppColors.maroonOnDark,
+      foregroundColor: AppColors.darkTextPrimary,
       side: const BorderSide(color: AppColors.darkBorder),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
     ),
   ),
+
   textButtonTheme: TextButtonThemeData(
     style: TextButton.styleFrom(
-      foregroundColor: AppColors.maroonOnDark,
+      foregroundColor: AppColors.dangerTextOnDark,
       textStyle: const TextStyle(fontWeight: FontWeight.w600),
     ),
   ),
+
+  iconTheme: const IconThemeData(color: AppColors.darkTextSecondary),
+
+  listTileTheme: const ListTileThemeData(
+    iconColor: AppColors.darkTextSecondary,
+    textColor: AppColors.darkTextPrimary,
+  ),
+
   dividerTheme: const DividerThemeData(
     color: AppColors.darkBorder,
     thickness: 1,
     space: 1,
   ),
-  snackBarTheme: const SnackBarThemeData(behavior: SnackBarBehavior.floating),
+
+  snackBarTheme: const SnackBarThemeData(
+    behavior: SnackBarBehavior.floating,
+    backgroundColor: AppColors.darkElevated,
+    contentTextStyle: TextStyle(color: AppColors.darkTextPrimary),
+  ),
+
+  navigationBarTheme: const NavigationBarThemeData(
+    backgroundColor: AppColors.darkSurface,
+    indicatorColor: AppColors.maroonLightOnDark,
+    surfaceTintColor: Colors.transparent,
+  ),
+
   bottomNavigationBarTheme: const BottomNavigationBarThemeData(
     backgroundColor: AppColors.darkSurface,
     selectedItemColor: AppColors.maroonOnDark,
     unselectedItemColor: AppColors.darkTextTertiary,
     showUnselectedLabels: true,
   ),
+
   chipTheme: ChipThemeData(
     backgroundColor: AppColors.darkSurfaceAlt,
-    selectedColor: AppColors.maroonOnDark,
+    selectedColor: AppColors.maroonLightOnDark,
     labelStyle: const TextStyle(color: AppColors.darkTextPrimary),
     side: const BorderSide(color: AppColors.darkBorder),
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
   ),
+
   textTheme: const TextTheme(
     bodyLarge: TextStyle(color: AppColors.darkTextPrimary),
     bodyMedium: TextStyle(color: AppColors.darkTextPrimary),
@@ -309,12 +358,21 @@ final ThemeData darkTheme = ThemeData(
       fontWeight: FontWeight.w600,
     ),
   ),
-  dialogTheme: const DialogThemeData(backgroundColor: AppColors.darkSurface),
+
+  dialogTheme: const DialogThemeData(
+    backgroundColor: AppColors.darkSurface,
+    surfaceTintColor: Colors.transparent,
+  ),
+
   bottomSheetTheme: const BottomSheetThemeData(
     backgroundColor: AppColors.darkSurface,
+    surfaceTintColor: Colors.transparent,
   ),
-  popupMenuTheme: const PopupMenuThemeData(color: AppColors.darkSurface),
+
+  popupMenuTheme: const PopupMenuThemeData(
+    color: AppColors.darkElevated,
+    surfaceTintColor: Colors.transparent,
+  ),
 );
 
-// Alias for code that still imports `appTheme`.
 final ThemeData appTheme = lightTheme;

@@ -1,40 +1,52 @@
+import '../utils/price_validator.dart';
+
 import 'dart:typed_data';
+
 import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
+
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../providers/auth_service.dart';
 import '../providers/product_provider.dart';
-
-// UM brand colors
-const Color _kMaroon = Color(0xFF800000);
-const Color _kGold = Color(0xFFD4AF37);
+import '../theme/app_theme.dart';
 
 class PostProductScreen extends StatefulWidget {
   final VoidCallback? onPostSuccess;
+
   const PostProductScreen({super.key, this.onPostSuccess});
 
   @override
-  _PostProductScreenState createState() => _PostProductScreenState();
+  State<PostProductScreen> createState() => _PostProductScreenState();
 }
 
 class _PostProductScreenState extends State<PostProductScreen> {
   final _formKey = GlobalKey<FormState>();
+
   final _titleController = TextEditingController();
+
   final _descriptionController = TextEditingController();
+
   final _priceController = TextEditingController();
+
   final _scrollController = ScrollController();
 
   String _category = 'Books';
 
+  String _itemCondition = 'Good';
+
   final List<XFile> _selectedImages = [];
+
   final List<Uint8List> _selectedImageBytes = [];
 
   bool _isUploading = false;
   bool _isPicking = false;
-  int _uploadedCount = 0; // for progress display
+
+  int _uploadedCount = 0;
+
   static const int _maxImages = 5;
 
   final List<String> _categories = [
@@ -46,14 +58,26 @@ class _PostProductScreenState extends State<PostProductScreen> {
     'Services',
   ];
 
+  final List<String> _conditions = [
+    'Brand New',
+    'Like New',
+    'Good',
+    'Fair',
+    'For Parts',
+  ];
+
   final ImagePicker _picker = ImagePicker();
 
   @override
   void dispose() {
     _titleController.dispose();
+
     _descriptionController.dispose();
+
     _priceController.dispose();
+
     _scrollController.dispose();
+
     super.dispose();
   }
 
@@ -63,38 +87,39 @@ class _PostProductScreenState extends State<PostProductScreen> {
 
   Future<void> _pickImages({required bool fromCamera}) async {
     if (_isPicking) return;
+
     if (_selectedImages.length >= _maxImages) {
       _showSnack('You can select up to $_maxImages photos.');
+
       return;
     }
 
-    setState(() => _isPicking = true);
-    try {
-      final List<XFile> images = fromCamera
-          ? [
-              if (await _picker.pickImage(source: ImageSource.camera) != null)
-                (await _picker.pickImage(source: ImageSource.camera))!,
-            ]
-          : await _picker.pickMultiImage();
+    setState(() {
+      _isPicking = true;
+    });
 
-      // The camera branch above re-picks; simplify by using a single
-      // helper that returns a list for both paths.
+    try {
       final List<XFile> picked = fromCamera
           ? await _pickSingleFromCamera()
-          : images;
+          : await _picker.pickMultiImage();
 
       if (picked.isEmpty) return;
 
       final remainingSlots = _maxImages - _selectedImages.length;
+
       final imagesToAdd = picked.take(remainingSlots).toList();
 
       final List<Uint8List> bytesList = [];
-      for (var img in imagesToAdd) {
+
+      for (final img in imagesToAdd) {
         bytesList.add(await img.readAsBytes());
       }
 
+      if (!mounted) return;
+
       setState(() {
         _selectedImages.addAll(imagesToAdd);
+
         _selectedImageBytes.addAll(bytesList);
       });
 
@@ -104,7 +129,11 @@ class _PostProductScreenState extends State<PostProductScreen> {
     } catch (e) {
       _showSnack('Failed to pick images: $e');
     } finally {
-      if (mounted) setState(() => _isPicking = false);
+      if (mounted) {
+        setState(() {
+          _isPicking = false;
+        });
+      }
     }
   }
 
@@ -113,12 +142,14 @@ class _PostProductScreenState extends State<PostProductScreen> {
       source: ImageSource.camera,
       imageQuality: 90,
     );
+
     return img == null ? <XFile>[] : [img];
   }
 
   void _showImageSourceSheet() {
     showModalBottomSheet(
       context: context,
+      backgroundColor: AppColors.surfaceOf(context),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -127,31 +158,44 @@ class _PostProductScreenState extends State<PostProductScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             const SizedBox(height: 8),
+
             Container(
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                color: Colors.grey[300],
+                color: AppColors.borderOf(context),
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
+
             const SizedBox(height: 12),
+
             ListTile(
-              leading: const Icon(Icons.photo_library, color: _kMaroon),
+              leading: Icon(
+                Icons.photo_library,
+                color: AppColors.brandOf(context),
+              ),
               title: const Text('Choose from gallery'),
               onTap: () {
                 Navigator.pop(ctx);
+
                 _pickImages(fromCamera: false);
               },
             ),
+
             ListTile(
-              leading: const Icon(Icons.camera_alt, color: _kMaroon),
+              leading: Icon(
+                Icons.camera_alt,
+                color: AppColors.brandOf(context),
+              ),
               title: const Text('Take a photo'),
               onTap: () {
                 Navigator.pop(ctx);
+
                 _pickImages(fromCamera: true);
               },
             ),
+
             const SizedBox(height: 8),
           ],
         ),
@@ -162,6 +206,7 @@ class _PostProductScreenState extends State<PostProductScreen> {
   void _removeImage(int index) {
     setState(() {
       _selectedImages.removeAt(index);
+
       _selectedImageBytes.removeAt(index);
     });
   }
@@ -179,7 +224,7 @@ class _PostProductScreenState extends State<PostProductScreen> {
   }
 
   // ============================================================
-  // UPLOAD LOGIC
+  // IMAGE UPLOAD
   // ============================================================
 
   String _sanitizeFileName(String name) {
@@ -198,38 +243,55 @@ class _PostProductScreenState extends State<PostProductScreen> {
         format: CompressFormat.jpeg,
       );
 
-      if (compressed.length >= rawBytes.length) return rawBytes;
+      if (compressed.length >= rawBytes.length) {
+        return rawBytes;
+      }
+
       return compressed;
     } catch (e) {
-      debugPrint('Image compression failed, using original: $e');
+      debugPrint('Image compression failed: $e');
+
       return rawBytes;
     }
   }
 
   Future<List<String>> _uploadImages() async {
     final supabase = Supabase.instance.client;
+
     final List<String> urls = [];
+
+    final images = List<XFile>.of(_selectedImages);
+
+    final imageBytes = List<Uint8List>.of(_selectedImageBytes);
+
     final userId = supabase.auth.currentUser?.id;
+
     if (userId == null) {
       throw Exception('You must be logged in to upload images.');
     }
 
-    for (int i = 0; i < _selectedImages.length; i++) {
-      final img = _selectedImages[i];
-      final rawBytes = _selectedImageBytes[i];
-      final bytes = await _compressImage(rawBytes);
+    for (int i = 0; i < images.length; i++) {
+      final img = images[i];
+
+      final bytes = await _compressImage(imageBytes[i]);
 
       final safeName = _sanitizeFileName(img.name);
+
       final fileName = '${DateTime.now().millisecondsSinceEpoch}_$safeName';
+
       final path = '$userId/$fileName';
 
       await supabase.storage.from('product-images').uploadBinary(path, bytes);
-      final url = supabase.storage.from('product-images').getPublicUrl(path);
-      urls.add(url);
 
-      // Update progress counter for the UI.
-      if (mounted) setState(() => _uploadedCount = i + 1);
+      urls.add(supabase.storage.from('product-images').getPublicUrl(path));
+
+      if (mounted) {
+        setState(() {
+          _uploadedCount = i + 1;
+        });
+      }
     }
+
     return urls;
   }
 
@@ -238,8 +300,13 @@ class _PostProductScreenState extends State<PostProductScreen> {
   // ============================================================
 
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
-    if (_isUploading) return;
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    if (_isUploading || _isPicking) {
+      return;
+    }
 
     setState(() {
       _isUploading = true;
@@ -248,50 +315,69 @@ class _PostProductScreenState extends State<PostProductScreen> {
 
     try {
       final authService = Provider.of<AuthService>(context, listen: false);
+
       final productProvider = Provider.of<ProductProvider>(
         context,
         listen: false,
       );
 
       final userId = authService.user?.id;
+
       if (userId == null) {
         throw Exception('You must be logged in to post.');
       }
 
+      final title = _titleController.text.trim();
+
+      final description = _descriptionController.text.trim();
+
+      final price = double.parse(_priceController.text.trim());
+
+      final sellerName = authService.user?.email ?? 'UM Student';
+
       final imageUrls = await _uploadImages();
+
       await productProvider.addProduct(
         sellerId: userId,
-        sellerName: authService.user?.email ?? 'UM Student',
-        title: _titleController.text.trim(),
-        description: _descriptionController.text.trim(),
-        price: double.parse(_priceController.text),
+        sellerName: sellerName,
+        title: title,
+        description: description,
+        price: price,
         category: _category,
+        itemCondition: _itemCondition,
         imageUrls: imageUrls,
       );
 
-      // Reset form
+      if (!mounted) return;
+
       _formKey.currentState!.reset();
+
       _titleController.clear();
       _descriptionController.clear();
       _priceController.clear();
+
       setState(() {
         _selectedImages.clear();
+
         _selectedImageBytes.clear();
+
         _category = 'Books';
+
+        _itemCondition = 'Good';
       });
 
       widget.onPostSuccess?.call();
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Product posted successfully!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Product posted successfully!'),
+          backgroundColor: Colors.green,
+        ),
+      );
     } catch (e) {
-      if (mounted) _showSnack('Error: $e', error: true);
+      if (mounted) {
+        _showSnack('Error: $e', error: true);
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -302,9 +388,14 @@ class _PostProductScreenState extends State<PostProductScreen> {
     }
   }
 
-  void _showSnack(String msg, {bool error = false}) {
+  void _showSnack(String message, {bool error = false}) {
+    if (!mounted) return;
+
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: error ? Colors.red : null),
+      SnackBar(
+        content: Text(message),
+        backgroundColor: error ? AppColors.danger : null,
+      ),
     );
   }
 
@@ -314,13 +405,14 @@ class _PostProductScreenState extends State<PostProductScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
-      backgroundColor: Colors.grey[50],
+      backgroundColor: AppColors.backgroundOf(context),
       appBar: AppBar(
         title: const Text('Sell an Item'),
-        backgroundColor: _kMaroon,
+        backgroundColor: isDark ? AppColors.maroonDark : AppColors.maroon,
         foregroundColor: Colors.white,
-        elevation: 0,
       ),
       body: Form(
         key: _formKey,
@@ -328,28 +420,28 @@ class _PostProductScreenState extends State<PostProductScreen> {
           controller: _scrollController,
           padding: const EdgeInsets.all(16),
           children: [
-            // ---------- Photo section ----------
             _SectionHeader(
               icon: Icons.photo_camera_outlined,
               title: 'Photos',
               subtitle: 'Up to $_maxImages photos',
             ),
+
             const SizedBox(height: 8),
+
             _buildImagePicker(),
+
             const SizedBox(height: 24),
 
-            // ---------- Item details ----------
-            _SectionHeader(
+            const _SectionHeader(
               icon: Icons.info_outline,
               title: 'Item Details',
               subtitle: 'Tell buyers what you\'re selling',
             ),
+
             const SizedBox(height: 8),
+
             Card(
-              elevation: 1,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
+              color: AppColors.surfaceOf(context),
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
@@ -362,20 +454,23 @@ class _PostProductScreenState extends State<PostProductScreen> {
                       decoration: const InputDecoration(
                         labelText: 'Title',
                         hintText: 'e.g., Calculus Textbook 7th Edition',
-                        border: OutlineInputBorder(),
                         counterText: '',
                       ),
-                      validator: (v) {
-                        if (v == null || v.trim().isEmpty) {
+                      validator: (value) {
+                        if (value == null || value.trim().isEmpty) {
                           return 'Please enter a title';
                         }
-                        if (v.trim().length < 3) {
+
+                        if (value.trim().length < 3) {
                           return 'Title must be at least 3 characters';
                         }
+
                         return null;
                       },
                     ),
+
                     const SizedBox(height: 16),
+
                     TextFormField(
                       controller: _descriptionController,
                       enabled: !_isUploading,
@@ -385,29 +480,27 @@ class _PostProductScreenState extends State<PostProductScreen> {
                       decoration: const InputDecoration(
                         labelText: 'Description',
                         hintText:
-                            'Condition, age, reason for selling, meet-up spot...',
+                            'Age, defects, inclusions, reason for selling...',
                         alignLabelWithHint: true,
-                        border: OutlineInputBorder(),
                       ),
                     ),
                   ],
                 ),
               ),
             ),
+
             const SizedBox(height: 24),
 
-            // ---------- Pricing & category ----------
-            _SectionHeader(
+            const _SectionHeader(
               icon: Icons.sell_outlined,
-              title: 'Pricing & Category',
-              subtitle: 'Help buyers find your listing',
+              title: 'Pricing & Details',
+              subtitle: 'Set price, category and condition',
             ),
+
             const SizedBox(height: 8),
+
             Card(
-              elevation: 1,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
+              color: AppColors.surfaceOf(context),
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
@@ -422,61 +515,93 @@ class _PostProductScreenState extends State<PostProductScreen> {
                         labelText: 'Price',
                         hintText: '0.00',
                         prefixText: '₱ ',
-                        border: OutlineInputBorder(),
                       ),
-                      validator: (v) {
-                        if (v == null || v.trim().isEmpty) {
-                          return 'Please enter a price';
-                        }
-                        final parsed = double.tryParse(v);
-                        if (parsed == null) return 'Enter a valid number';
-                        if (parsed <= 0) {
-                          return 'Price must be greater than 0';
-                        }
-                        if (parsed > 1000000) {
-                          return 'Price seems too high';
-                        }
-                        return null;
-                      },
+                      validator: validatePrice,
                     ),
+
                     const SizedBox(height: 16),
+
                     DropdownButtonFormField<String>(
-                      value: _category,
+                      initialValue: _category,
+                      dropdownColor: AppColors.surfaceOf(context),
                       items: _categories
                           .map(
-                            (cat) =>
-                                DropdownMenuItem(value: cat, child: Text(cat)),
+                            (category) => DropdownMenuItem(
+                              value: category,
+                              child: Text(category),
+                            ),
                           )
                           .toList(),
                       onChanged: _isUploading
                           ? null
-                          : (val) => setState(() => _category = val!),
+                          : (value) {
+                              if (value == null) {
+                                return;
+                              }
+
+                              setState(() {
+                                _category = value;
+                              });
+                            },
                       decoration: const InputDecoration(
                         labelText: 'Category',
-                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.category_outlined),
                       ),
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    DropdownButtonFormField<String>(
+                      initialValue: _itemCondition,
+                      dropdownColor: AppColors.surfaceOf(context),
+                      items: _conditions
+                          .map(
+                            (condition) => DropdownMenuItem(
+                              value: condition,
+                              child: Text(condition),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: _isUploading
+                          ? null
+                          : (value) {
+                              if (value == null) {
+                                return;
+                              }
+
+                              setState(() {
+                                _itemCondition = value;
+                              });
+                            },
+                      decoration: const InputDecoration(
+                        labelText: 'Condition',
+                        prefixIcon: Icon(Icons.verified_outlined),
+                      ),
+                      validator: (value) {
+                        if (value == null) {
+                          return 'Please select the item condition';
+                        }
+
+                        return null;
+                      },
                     ),
                   ],
                 ),
               ),
             ),
+
             const SizedBox(height: 32),
 
-            // ---------- Submit ----------
             SizedBox(
               width: double.infinity,
               height: 52,
               child: ElevatedButton(
                 onPressed: _isUploading ? null : _submit,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: _kMaroon,
+                  backgroundColor: AppColors.brandOf(context),
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
-                  ),
-                  textStyle: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
                   ),
                 ),
                 child: _isUploading
@@ -484,8 +609,8 @@ class _PostProductScreenState extends State<PostProductScreen> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           const SizedBox(
-                            height: 20,
                             width: 20,
+                            height: 20,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
                               color: Colors.white,
@@ -502,7 +627,6 @@ class _PostProductScreenState extends State<PostProductScreen> {
                     : const Text('Post Item'),
               ),
             ),
-            const SizedBox(height: 16),
           ],
         ),
       ),
@@ -511,14 +635,11 @@ class _PostProductScreenState extends State<PostProductScreen> {
 
   Widget _buildImagePicker() {
     return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      color: AppColors.surfaceOf(context),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Image grid
             if (_selectedImages.isEmpty)
               GestureDetector(
                 onTap: _isUploading ? null : _showImageSourceSheet,
@@ -526,12 +647,9 @@ class _PostProductScreenState extends State<PostProductScreen> {
                   height: 140,
                   width: double.infinity,
                   decoration: BoxDecoration(
-                    color: Colors.grey[100],
+                    color: AppColors.surfaceAltOf(context),
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: Colors.grey[300]!,
-                      style: BorderStyle.solid,
-                    ),
+                    border: Border.all(color: AppColors.borderOf(context)),
                   ),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -539,20 +657,14 @@ class _PostProductScreenState extends State<PostProductScreen> {
                       Icon(
                         Icons.add_a_photo_outlined,
                         size: 36,
-                        color: Colors.grey[500],
+                        color: AppColors.brandOf(context),
                       ),
                       const SizedBox(height: 8),
                       Text(
                         'Tap to add photos',
                         style: TextStyle(
-                          color: Colors.grey[600],
-                          fontWeight: FontWeight.w500,
+                          color: AppColors.textSecondaryOf(context),
                         ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'PNG or JPG, up to $_maxImages',
-                        style: TextStyle(color: Colors.grey[500], fontSize: 12),
                       ),
                     ],
                   ),
@@ -570,38 +682,36 @@ class _PostProductScreenState extends State<PostProductScreen> {
                 itemCount:
                     _selectedImages.length +
                     (_selectedImages.length < _maxImages ? 1 : 0),
-                itemBuilder: (ctx, i) {
-                  // Last tile = "+ Add" button
-                  if (i == _selectedImages.length) {
-                    return GestureDetector(
-                      onTap: _isUploading ? null : _showImageSourceSheet,
+                itemBuilder: (context, index) {
+                  if (index == _selectedImages.length) {
+                    return InkWell(
+                      onTap: _showImageSourceSheet,
                       child: Container(
                         decoration: BoxDecoration(
-                          color: Colors.grey[100],
+                          color: AppColors.surfaceAltOf(context),
                           borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.grey[300]!),
+                          border: Border.all(
+                            color: AppColors.borderOf(context),
+                          ),
                         ),
                         child: Icon(
                           Icons.add,
-                          color: Colors.grey[600],
-                          size: 32,
+                          color: AppColors.brandOf(context),
                         ),
                       ),
                     );
                   }
 
-                  // Image tile
                   return Stack(
+                    fit: StackFit.expand,
                     children: [
                       GestureDetector(
-                        onTap: () => _previewImage(i),
+                        onTap: () => _previewImage(index),
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(8),
                           child: Image.memory(
-                            _selectedImageBytes[i],
+                            _selectedImageBytes[index],
                             fit: BoxFit.cover,
-                            width: double.infinity,
-                            height: double.infinity,
                           ),
                         ),
                       ),
@@ -609,17 +719,17 @@ class _PostProductScreenState extends State<PostProductScreen> {
                         top: 4,
                         right: 4,
                         child: GestureDetector(
-                          onTap: _isUploading ? null : () => _removeImage(i),
+                          onTap: () => _removeImage(index),
                           child: Container(
-                            padding: const EdgeInsets.all(3),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withOpacity(0.6),
+                            padding: const EdgeInsets.all(4),
+                            decoration: const BoxDecoration(
+                              color: Colors.black54,
                               shape: BoxShape.circle,
                             ),
                             child: const Icon(
                               Icons.close,
+                              size: 15,
                               color: Colors.white,
-                              size: 14,
                             ),
                           ),
                         ),
@@ -630,15 +740,13 @@ class _PostProductScreenState extends State<PostProductScreen> {
               ),
 
             const SizedBox(height: 12),
-            Row(
-              children: [
-                Icon(Icons.info_outline, size: 14, color: Colors.grey[600]),
-                const SizedBox(width: 6),
-                Text(
-                  '${_selectedImages.length}/$_maxImages · tap an image to preview',
-                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                ),
-              ],
+
+            Text(
+              '${_selectedImages.length}/$_maxImages photos',
+              style: TextStyle(
+                fontSize: 12,
+                color: AppColors.textSecondaryOf(context),
+              ),
             ),
           ],
         ),
@@ -646,10 +754,6 @@ class _PostProductScreenState extends State<PostProductScreen> {
     );
   }
 }
-
-// ============================================================
-// HELPER WIDGETS
-// ============================================================
 
 class _SectionHeader extends StatelessWidget {
   final IconData icon;
@@ -666,24 +770,36 @@ class _SectionHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Icon(icon, size: 20, color: _kMaroon),
-        const SizedBox(width: 8),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.bold,
-                color: Colors.black87,
+        Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            color: AppColors.brandSoftOf(context),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, size: 20, color: AppColors.brandOf(context)),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textPrimaryOf(context),
+                ),
               ),
-            ),
-            Text(
-              subtitle,
-              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-            ),
-          ],
+              Text(
+                subtitle,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: AppColors.textSecondaryOf(context),
+                ),
+              ),
+            ],
+          ),
         ),
       ],
     );
@@ -703,16 +819,12 @@ class _FullScreenImage extends StatelessWidget {
       appBar: AppBar(
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
-        title: Text(
-          title,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontSize: 14),
-        ),
+        title: Text(title, overflow: TextOverflow.ellipsis),
       ),
       body: Center(
         child: InteractiveViewer(
           minScale: 0.8,
-          maxScale: 4.0,
+          maxScale: 4,
           child: Image.memory(bytes, fit: BoxFit.contain),
         ),
       ),

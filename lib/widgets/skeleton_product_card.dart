@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../theme/app_theme.dart';
 
 /// Pulsing placeholder matching the layout of `ProductCard`.
 class SkeletonProductCard extends StatelessWidget {

@@ -3,12 +3,14 @@ import 'package:provider/provider.dart';
 import '../models/product.dart';
 import '../providers/favorites_provider.dart';
 import '../widgets/product_card.dart';
+import '../widgets/empty_state.dart';
+import '../widgets/skeleton_product_card.dart';
 
 class FavoritesScreen extends StatefulWidget {
   const FavoritesScreen({super.key});
 
   @override
-  _FavoritesScreenState createState() => _FavoritesScreenState();
+  State<FavoritesScreen> createState() => _FavoritesScreenState();
 }
 
 class _FavoritesScreenState extends State<FavoritesScreen> {
@@ -50,19 +52,37 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
           future: _favoritesFuture,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
+              return ListView.builder(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                itemCount: 6,
+                itemBuilder: (_, __) => const SkeletonProductCard(),
+              );
             }
             if (snapshot.hasError) {
-              return Center(child: Text('Error: ${snapshot.error}'));
+              return ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                children: const [
+                  SizedBox(height: 120),
+                  EmptyState(
+                    icon: Icons.cloud_off_outlined,
+                    title: 'Something went wrong',
+                    subtitle: 'Pull down to try again.',
+                  ),
+                ],
+              );
             }
             final products = snapshot.data ?? [];
             if (products.isEmpty) {
-              return const Center(
-                child: Text(
-                  'No favorites yet.\nTap the heart on a product to save it.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey, fontSize: 16),
-                ),
+              return ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                children: const [
+                  SizedBox(height: 120),
+                  EmptyState(
+                    icon: Icons.favorite_border,
+                    title: 'No favorites yet',
+                    subtitle: 'Tap the heart on a product to save it.',
+                  ),
+                ],
               );
             }
             return ListView.builder(

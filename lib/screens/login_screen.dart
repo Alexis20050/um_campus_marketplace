@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../providers/auth_service.dart';
-import 'main_screen.dart';
-import 'forgot_password_screen.dart';
 
-// UM brand colors
-const Color _kMaroon = Color(0xFF800000);
-const Color _kGold = Color(0xFFD4AF37);
+import '../providers/auth_service.dart';
+import '../theme/app_theme.dart';
+import 'forgot_password_screen.dart';
+import 'main_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -29,8 +27,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
   bool _isLogin = true;
   bool _otpSent = false;
+
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
+
   bool _isLoading = false;
 
   bool _canSubmit = true;
@@ -41,9 +41,11 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      _authService = Provider.of<AuthService>(context, listen: false);
+
+      _authService = context.read<AuthService>();
       _authService!.addListener(_onAuthChanged);
     });
   }
@@ -51,348 +53,642 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void dispose() {
     _authService?.removeListener(_onAuthChanged);
+
     _nameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
     _otpController.dispose();
+
     super.dispose();
   }
 
-  /// Reacts to changes in AuthService. Currently shows a SnackBar when
-  /// a sign-in attempt was rejected (e.g., non-UM email via Google SSO).
   void _onAuthChanged() {
-    final msg = _authService?.authMessage;
-    if (msg == null || !mounted) return;
+    final message = _authService?.authMessage;
+
+    if (message == null || !mounted) return;
+
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(msg),
-        backgroundColor: Colors.red,
-        duration: const Duration(seconds: 4),
+        content: Text(message),
+        backgroundColor: AppColors.danger,
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(16),
       ),
     );
 
-    // Clear so it doesn't re-fire on the next rebuild.
     _authService?.clearAuthMessage();
   }
 
+  // ============================================================
+  // INPUT DESIGN
+  // ============================================================
+
+  InputDecoration _fieldDecoration({
+    required String label,
+    required String hint,
+    required IconData icon,
+    Widget? suffix,
+  }) {
+    final brand = AppColors.brandOf(context);
+
+    return InputDecoration(
+      labelText: label,
+      hintText: hint,
+
+      prefixIcon: Icon(icon, color: brand, size: 21),
+
+      suffixIcon: suffix,
+
+      filled: true,
+      fillColor: AppColors.surfaceAltOf(context),
+
+      labelStyle: TextStyle(
+        color: AppColors.textSecondaryOf(context),
+        fontSize: 14,
+      ),
+
+      floatingLabelStyle: TextStyle(color: brand, fontWeight: FontWeight.w600),
+
+      hintStyle: TextStyle(
+        color: AppColors.textTertiaryOf(context),
+        fontSize: 14,
+      ),
+
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 17),
+
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: AppColors.borderOf(context)),
+      ),
+
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: brand, width: 1.8),
+      ),
+
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: AppColors.danger),
+      ),
+
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: AppColors.danger, width: 1.8),
+      ),
+
+      errorStyle: const TextStyle(color: AppColors.danger, fontSize: 12),
+    );
+  }
+
+  TextStyle get _fieldTextStyle {
+    return TextStyle(
+      color: AppColors.textPrimaryOf(context),
+      fontSize: 15,
+      fontWeight: FontWeight.w500,
+    );
+  }
+
+  // ============================================================
+  // BUILD
+  // ============================================================
+
   @override
   Widget build(BuildContext context) {
-    final authService = Provider.of<AuthService>(context);
+    final authService = context.watch<AuthService>();
 
+    // Keep your current navigation behavior for now.
     if (authService.user != null) {
       return const MainScreen();
     }
 
-    return _otpSent ? _buildOtpForm(authService) : _buildAuthForm();
+    return _otpSent ? _buildOtpScreen(authService) : _buildAuthScreen();
   }
 
-  // ----------------------------------------------------------------
-  // AUTH FORM
-  // ----------------------------------------------------------------
-  Widget _buildAuthForm() {
-    return Scaffold(
-      backgroundColor: Colors.grey[50],
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-            child: Form(
-              key: _authFormKey,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Image.asset(
-                    'assets/images/University_of_Mindanao_Logo.png',
-                    height: 96,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    _isLogin ? 'Welcome Back!' : 'Create Account',
-                    style: const TextStyle(
-                      fontSize: 26,
-                      fontWeight: FontWeight.bold,
-                      color: _kMaroon,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    _isLogin
-                        ? 'Sign in with your UM email'
-                        : 'Register using your UM email',
-                    style: TextStyle(color: Colors.grey[600], fontSize: 14),
-                  ),
-                  const SizedBox(height: 28),
+  // ============================================================
+  // LOGIN / REGISTER
+  // ============================================================
 
-                  Card(
-                    elevation: 2,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(20),
-                      child: Column(
-                        children: [
-                          if (!_isLogin) ...[
+  Widget _buildAuthScreen() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final brand = AppColors.brandOf(context);
+
+    return Scaffold(
+      backgroundColor: AppColors.backgroundOf(context),
+      body: GestureDetector(
+        onTap: () {
+          FocusScope.of(context).unfocus();
+        },
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              padding: const EdgeInsets.fromLTRB(22, 28, 22, 32),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 440),
+                child: Form(
+                  key: _authFormKey,
+                  child: Column(
+                    children: [
+                      // =================================================
+                      // LOGO
+                      // =================================================
+                      Container(
+                        width: 96,
+                        height: 96,
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: AppColors.surfaceOf(context),
+                          borderRadius: BorderRadius.circular(24),
+                          border: Border.all(
+                            color: AppColors.borderOf(context),
+                          ),
+                          boxShadow: [
+                            if (!isDark)
+                              BoxShadow(
+                                color: AppColors.shadowOf(context),
+                                blurRadius: 18,
+                                offset: const Offset(0, 6),
+                              ),
+                          ],
+                        ),
+                        child: Image.asset(
+                          'assets/images/University_of_Mindanao_Logo.png',
+                          fit: BoxFit.contain,
+                        ),
+                      ),
+
+                      const SizedBox(height: 18),
+
+                      // =================================================
+                      // TITLE
+                      // =================================================
+                      Text(
+                        'UM Campus Marketplace',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: AppColors.textPrimaryOf(context),
+                          fontSize: 24,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.4,
+                        ),
+                      ),
+
+                      const SizedBox(height: 6),
+
+                      Text(
+                        _isLogin
+                            ? 'Sign in to your marketplace account'
+                            : 'Create your marketplace account',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: AppColors.textSecondaryOf(context),
+                          fontSize: 13,
+                        ),
+                      ),
+
+                      const SizedBox(height: 26),
+
+                      // =================================================
+                      // MAIN CARD
+                      // =================================================
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(22),
+                        decoration: BoxDecoration(
+                          color: AppColors.surfaceOf(context),
+                          borderRadius: BorderRadius.circular(22),
+                          border: Border.all(
+                            color: AppColors.borderOf(context),
+                          ),
+                          boxShadow: [
+                            if (!isDark)
+                              BoxShadow(
+                                color: AppColors.shadowOf(context),
+                                blurRadius: 20,
+                                offset: const Offset(0, 7),
+                              ),
+                          ],
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            // ===========================================
+                            // NAME - REGISTER ONLY
+                            // ===========================================
+                            if (!_isLogin) ...[
+                              TextFormField(
+                                controller: _nameController,
+                                style: _fieldTextStyle,
+                                cursorColor: brand,
+                                textCapitalization: TextCapitalization.words,
+                                textInputAction: TextInputAction.next,
+                                autofillHints: const [AutofillHints.name],
+                                decoration: _fieldDecoration(
+                                  label: 'Full Name',
+                                  hint: 'Juan Dela Cruz',
+                                  icon: Icons.person_outline,
+                                ),
+                                validator: (value) {
+                                  if (value == null || value.trim().isEmpty) {
+                                    return 'Please enter your full name';
+                                  }
+
+                                  return null;
+                                },
+                              ),
+
+                              const SizedBox(height: 16),
+                            ],
+
+                            // ===========================================
+                            // EMAIL
+                            // ===========================================
                             TextFormField(
-                              controller: _nameController,
-                              textCapitalization: TextCapitalization.words,
-                              decoration: const InputDecoration(
-                                labelText: 'Full Name',
-                                hintText: 'e.g., Juan Dela Cruz',
-                                prefixIcon: Icon(Icons.person_outline),
-                                border: OutlineInputBorder(),
+                              controller: _emailController,
+                              style: _fieldTextStyle,
+                              cursorColor: brand,
+                              keyboardType: TextInputType.emailAddress,
+                              textInputAction: TextInputAction.next,
+                              autocorrect: false,
+                              enableSuggestions: false,
+                              autofillHints: const [AutofillHints.email],
+                              decoration: _fieldDecoration(
+                                label: _isLogin ? 'Email' : 'UM Email',
+                                hint: _isLogin
+                                    ? 'Enter your email'
+                                    : 'yourname@umindanao.edu.ph',
+                                icon: Icons.email_outlined,
                               ),
                               validator: (value) {
-                                if (value == null || value.trim().isEmpty) {
-                                  return 'Please enter your name';
+                                final email = value?.trim().toLowerCase() ?? '';
+
+                                if (email.isEmpty) {
+                                  return 'Please enter your email';
                                 }
+
+                                if (!email.contains('@')) {
+                                  return 'Enter a valid email address';
+                                }
+
+                                final auth = context.read<AuthService>();
+
+                                // Registration remains UM-only.
+                                if (!_isLogin && !auth.isUMEmail(email)) {
+                                  return 'Only UM email addresses can register';
+                                }
+
+                                // Login allows UM + authorized admin.
+                                if (_isLogin &&
+                                    !auth.isAllowedLoginEmail(email)) {
+                                  return 'This account is not authorized';
+                                }
+
                                 return null;
                               },
                             ),
-                            const SizedBox(height: 16),
-                          ],
 
-                          TextFormField(
-                            controller: _emailController,
-                            keyboardType: TextInputType.emailAddress,
-                            decoration: const InputDecoration(
-                              labelText: 'UM Email',
-                              hintText: 'yourname@umindanao.edu.ph',
-                              prefixIcon: Icon(Icons.email_outlined),
-                              border: OutlineInputBorder(),
-                            ),
-                            validator: (value) {
-                              final email = value?.trim() ?? '';
-                              if (email.isEmpty) {
-                                return 'Please enter your email';
-                              }
-                              if (!email.endsWith('@umindanao.edu.ph')) {
-                                return 'Only UM email addresses are allowed';
-                              }
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: 16),
-
-                          TextFormField(
-                            controller: _passwordController,
-                            obscureText: _obscurePassword,
-                            decoration: InputDecoration(
-                              labelText: 'Password',
-                              prefixIcon: const Icon(Icons.lock_outline),
-                              border: const OutlineInputBorder(),
-                              suffixIcon: IconButton(
-                                icon: Icon(
-                                  _obscurePassword
-                                      ? Icons.visibility_off
-                                      : Icons.visibility,
-                                ),
-                                onPressed: () {
-                                  setState(
-                                    () => _obscurePassword = !_obscurePassword,
-                                  );
-                                },
-                              ),
-                            ),
-                            validator: (value) {
-                              if (value == null || value.isEmpty) {
-                                return 'Please enter a password';
-                              }
-                              if (value.length < 6) {
-                                return 'Password must be at least 6 characters';
-                              }
-                              return null;
-                            },
-                          ),
-
-                          if (_isLogin)
-                            Align(
-                              alignment: Alignment.centerRight,
-                              child: TextButton(
-                                onPressed: _isLoading
-                                    ? null
-                                    : () {
-                                        Navigator.push(
-                                          context,
-                                          MaterialPageRoute(
-                                            builder: (_) =>
-                                                const ForgotPasswordScreen(),
-                                          ),
-                                        );
-                                      },
-                                child: const Text(
-                                  'Forgot Password?',
-                                  style: TextStyle(
-                                    color: _kMaroon,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                            )
-                          else
                             const SizedBox(height: 16),
 
-                          if (!_isLogin) ...[
+                            // ===========================================
+                            // PASSWORD
+                            // ===========================================
                             TextFormField(
-                              controller: _confirmPasswordController,
-                              obscureText: _obscureConfirmPassword,
-                              decoration: InputDecoration(
-                                labelText: 'Confirm Password',
-                                prefixIcon: const Icon(Icons.lock_outline),
-                                border: const OutlineInputBorder(),
-                                suffixIcon: IconButton(
-                                  icon: Icon(
-                                    _obscureConfirmPassword
-                                        ? Icons.visibility_off
-                                        : Icons.visibility,
-                                  ),
+                              controller: _passwordController,
+                              style: _fieldTextStyle,
+                              cursorColor: brand,
+                              obscureText: _obscurePassword,
+                              autofillHints: _isLogin
+                                  ? const [AutofillHints.password]
+                                  : const [AutofillHints.newPassword],
+                              textInputAction: _isLogin
+                                  ? TextInputAction.done
+                                  : TextInputAction.next,
+                              onFieldSubmitted: (_) {
+                                if (_isLogin && !_isLoading) {
+                                  _submit(context.read<AuthService>());
+                                }
+                              },
+                              decoration: _fieldDecoration(
+                                label: 'Password',
+                                hint: 'Enter your password',
+                                icon: Icons.lock_outline,
+                                suffix: IconButton(
+                                  tooltip: _obscurePassword
+                                      ? 'Show password'
+                                      : 'Hide password',
                                   onPressed: () {
-                                    setState(
-                                      () => _obscureConfirmPassword =
-                                          !_obscureConfirmPassword,
-                                    );
+                                    setState(() {
+                                      _obscurePassword = !_obscurePassword;
+                                    });
                                   },
+                                  icon: Icon(
+                                    _obscurePassword
+                                        ? Icons.visibility_off_outlined
+                                        : Icons.visibility_outlined,
+                                    color: AppColors.textSecondaryOf(context),
+                                  ),
                                 ),
                               ),
                               validator: (value) {
                                 if (value == null || value.isEmpty) {
-                                  return 'Please confirm your password';
+                                  return 'Please enter your password';
                                 }
-                                if (value != _passwordController.text) {
-                                  return 'Passwords do not match';
+
+                                if (value.length < 6) {
+                                  return 'Password must be at least 6 characters';
                                 }
+
                                 return null;
                               },
                             ),
-                            const SizedBox(height: 16),
-                          ],
 
-                          // Submit button
-                          SizedBox(
-                            width: double.infinity,
-                            height: 50,
-                            child: ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: _kMaroon,
-                                foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
+                            // ===========================================
+                            // FORGOT PASSWORD
+                            // ===========================================
+                            if (_isLogin)
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: TextButton(
+                                  onPressed: _isLoading
+                                      ? null
+                                      : () {
+                                          Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (_) =>
+                                                  const ForgotPasswordScreen(),
+                                            ),
+                                          );
+                                        },
+                                  style: TextButton.styleFrom(
+                                    foregroundColor: brand,
+                                    padding: const EdgeInsets.only(
+                                      top: 9,
+                                      bottom: 10,
+                                    ),
+                                  ),
+                                  child: const Text(
+                                    'Forgot password?',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
                                 ),
-                                textStyle: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
+                              )
+                            else
+                              const SizedBox(height: 16),
+
+                            // ===========================================
+                            // CONFIRM PASSWORD
+                            // ===========================================
+                            if (!_isLogin) ...[
+                              TextFormField(
+                                controller: _confirmPasswordController,
+                                style: _fieldTextStyle,
+                                cursorColor: brand,
+                                obscureText: _obscureConfirmPassword,
+                                textInputAction: TextInputAction.done,
+                                autofillHints: const [
+                                  AutofillHints.newPassword,
+                                ],
+                                onFieldSubmitted: (_) {
+                                  if (!_isLoading) {
+                                    _submit(context.read<AuthService>());
+                                  }
+                                },
+                                decoration: _fieldDecoration(
+                                  label: 'Confirm Password',
+                                  hint: 'Enter your password again',
+                                  icon: Icons.lock_outline,
+                                  suffix: IconButton(
+                                    onPressed: () {
+                                      setState(() {
+                                        _obscureConfirmPassword =
+                                            !_obscureConfirmPassword;
+                                      });
+                                    },
+                                    icon: Icon(
+                                      _obscureConfirmPassword
+                                          ? Icons.visibility_off_outlined
+                                          : Icons.visibility_outlined,
+                                      color: AppColors.textSecondaryOf(context),
+                                    ),
+                                  ),
                                 ),
+                                validator: (value) {
+                                  if (value == null || value.isEmpty) {
+                                    return 'Please confirm your password';
+                                  }
+
+                                  if (value != _passwordController.text) {
+                                    return 'Passwords do not match';
+                                  }
+
+                                  return null;
+                                },
                               ),
-                              onPressed: _isLoading
-                                  ? null
-                                  : () => _submit(context.read<AuthService>()),
-                              child: _isLoading
-                                  ? const SizedBox(
-                                      height: 22,
-                                      width: 22,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Colors.white,
-                                      ),
-                                    )
-                                  : Text(_isLogin ? 'Sign In' : 'Register'),
-                            ),
-                          ),
 
-                          // OR divider
-                          const SizedBox(height: 16),
-                          Row(
-                            children: [
-                              Expanded(child: Divider(color: Colors.grey[300])),
-                              Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
+                              const SizedBox(height: 20),
+                            ],
+
+                            // ===========================================
+                            // PRIMARY BUTTON
+                            // ===========================================
+                            SizedBox(
+                              height: 52,
+                              child: ElevatedButton(
+                                onPressed: _isLoading
+                                    ? null
+                                    : () =>
+                                          _submit(context.read<AuthService>()),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.maroon,
+                                  foregroundColor: Colors.white,
+                                  disabledBackgroundColor: AppColors.maroon
+                                      .withValues(alpha: 0.45),
+                                  disabledForegroundColor: Colors.white70,
+                                  elevation: 0,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
                                 ),
-                                child: Text(
-                                  'OR',
-                                  style: TextStyle(
-                                    color: Colors.grey[600],
-                                    fontSize: 12,
+                                child: _isLoading
+                                    ? const SizedBox(
+                                        width: 22,
+                                        height: 22,
+                                        child: CircularProgressIndicator(
+                                          color: Colors.white,
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : Text(
+                                        _isLogin ? 'Sign In' : 'Create Account',
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                              ),
+                            ),
+
+                            const SizedBox(height: 20),
+
+                            // ===========================================
+                            // OR
+                            // ===========================================
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Divider(
+                                    color: AppColors.borderOf(context),
+                                  ),
+                                ),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                  ),
+                                  child: Text(
+                                    'OR',
+                                    style: TextStyle(
+                                      color: AppColors.textTertiaryOf(context),
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                                Expanded(
+                                  child: Divider(
+                                    color: AppColors.borderOf(context),
+                                  ),
+                                ),
+                              ],
+                            ),
+
+                            const SizedBox(height: 18),
+
+                            // ===========================================
+                            // GOOGLE
+                            // ===========================================
+                            SizedBox(
+                              height: 52,
+                              child: OutlinedButton.icon(
+                                onPressed: _isLoading
+                                    ? null
+                                    : () => _submitGoogle(
+                                        context.read<AuthService>(),
+                                      ),
+                                icon: Image.network(
+                                  'https://www.gstatic.com/images/branding/product/1x/gsa_512dp.png',
+                                  width: 21,
+                                  height: 21,
+                                  errorBuilder: (_, __, ___) => Icon(
+                                    Icons.login,
+                                    size: 20,
+                                    color: AppColors.textPrimaryOf(context),
+                                  ),
+                                ),
+                                label: const Text('Continue with Google'),
+                                style: OutlinedButton.styleFrom(
+                                  backgroundColor: AppColors.surfaceAltOf(
+                                    context,
+                                  ),
+                                  foregroundColor: AppColors.textPrimaryOf(
+                                    context,
+                                  ),
+                                  side: BorderSide(
+                                    color: AppColors.borderOf(context),
+                                  ),
+                                  elevation: 0,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  textStyle: const TextStyle(
+                                    fontSize: 14,
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
                               ),
-                              Expanded(child: Divider(color: Colors.grey[300])),
-                            ],
-                          ),
-                          const SizedBox(height: 16),
+                            ),
+                          ],
+                        ),
+                      ),
 
-                          // Google SSO button
-                          SizedBox(
-                            width: double.infinity,
-                            height: 50,
-                            child: OutlinedButton.icon(
-                              onPressed: _isLoading
-                                  ? null
-                                  : () => _submitGoogle(
-                                      context.read<AuthService>(),
-                                    ),
-                              icon: Image.network(
-                                'https://www.gstatic.com/images/branding/product/1x/gsa_512dp.png',
-                                height: 22,
-                                width: 22,
-                                errorBuilder: (_, __, ___) =>
-                                    const Icon(Icons.login, size: 20),
+                      const SizedBox(height: 20),
+
+                      // =================================================
+                      // SWITCH LOGIN / REGISTER
+                      // =================================================
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            _isLogin
+                                ? "Don't have an account?"
+                                : 'Already have an account?',
+                            style: TextStyle(
+                              color: AppColors.textSecondaryOf(context),
+                              fontSize: 13,
+                            ),
+                          ),
+
+                          const SizedBox(width: 3),
+
+                          TextButton(
+                            onPressed: _isLoading
+                                ? null
+                                : () {
+                                    FocusScope.of(context).unfocus();
+
+                                    setState(() {
+                                      _isLogin = !_isLogin;
+
+                                      _passwordController.clear();
+
+                                      _confirmPasswordController.clear();
+
+                                      _obscurePassword = true;
+
+                                      _obscureConfirmPassword = true;
+                                    });
+
+                                    _authFormKey.currentState?.reset();
+                                  },
+                            style: TextButton.styleFrom(
+                              foregroundColor: brand,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 5,
                               ),
-                              label: const Text('Continue with Google'),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.black87,
-                                side: BorderSide(color: Colors.grey.shade300),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                textStyle: const TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                            ),
+                            child: Text(
+                              _isLogin ? 'Create Account' : 'Sign In',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
                           ),
                         ],
                       ),
-                    ),
-                  ),
 
-                  const SizedBox(height: 16),
-
-                  // Toggle login/register
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        _isLogin
-                            ? "Don't have an account?"
-                            : 'Already have an account?',
-                        style: TextStyle(color: Colors.grey[700]),
-                      ),
-                      TextButton(
-                        onPressed: _isLoading
-                            ? null
-                            : () {
-                                setState(() {
-                                  _isLogin = !_isLogin;
-                                  _passwordController.clear();
-                                  _confirmPasswordController.clear();
-                                });
-                              },
-                        child: Text(
-                          _isLogin ? 'Register' : 'Sign In',
-                          style: const TextStyle(
-                            color: _kMaroon,
-                            fontWeight: FontWeight.w600,
+                      if (!_isLogin)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(
+                            'Registration requires a University of Mindanao email.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: AppColors.textTertiaryOf(context),
+                              fontSize: 11,
+                            ),
                           ),
                         ),
-                      ),
                     ],
                   ),
-                ],
+                ),
               ),
             ),
           ),
@@ -401,115 +697,144 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  // ----------------------------------------------------------------
-  // OTP FORM
-  // ----------------------------------------------------------------
-  Widget _buildOtpForm(AuthService authService) {
+  // ============================================================
+  // OTP
+  // ============================================================
+
+  Widget _buildOtpScreen(AuthService authService) {
+    final primary = AppColors.textPrimaryOf(context);
+
+    final secondary = AppColors.textSecondaryOf(context);
+
+    final brand = AppColors.brandOf(context);
+
     return Scaffold(
-      backgroundColor: Colors.grey[50],
+      backgroundColor: AppColors.backgroundOf(context),
       appBar: AppBar(
         title: const Text('Verify Email'),
-        backgroundColor: _kMaroon,
+        backgroundColor: AppColors.maroon,
         foregroundColor: Colors.white,
         elevation: 0,
       ),
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-            child: Form(
-              key: _otpFormKey,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: _kMaroon.withOpacity(0.08),
-                      shape: BoxShape.circle,
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 440),
+              child: Form(
+                key: _otpFormKey,
+                child: Column(
+                  children: [
+                    Container(
+                      width: 92,
+                      height: 92,
+                      decoration: BoxDecoration(
+                        color: AppColors.brandSoftOf(context),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.mark_email_read_outlined,
+                        size: 45,
+                        color: brand,
+                      ),
                     ),
-                    child: const Icon(
-                      Icons.mark_email_read_outlined,
-                      size: 64,
-                      color: _kMaroon,
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  const Text(
-                    'Enter the verification code',
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                      color: _kMaroon,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'We sent a code to\n${_emailController.text.trim()}',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey[600], fontSize: 14),
-                  ),
-                  const SizedBox(height: 28),
 
-                  Card(
-                    elevation: 2,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
+                    const SizedBox(height: 22),
+
+                    Text(
+                      'Verify your email',
+                      style: TextStyle(
+                        color: primary,
+                        fontSize: 23,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
-                    child: Padding(
+
+                    const SizedBox(height: 8),
+
+                    Text(
+                      'Enter the verification code sent to',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: secondary, fontSize: 13),
+                    ),
+
+                    const SizedBox(height: 4),
+
+                    Text(
+                      _emailController.text.trim(),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: brand,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+
+                    const SizedBox(height: 26),
+
+                    Container(
                       padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceOf(context),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: AppColors.borderOf(context)),
+                      ),
                       child: Column(
                         children: [
                           TextFormField(
                             controller: _otpController,
                             keyboardType: TextInputType.number,
                             maxLength: 8,
+                            autofocus: true,
                             textAlign: TextAlign.center,
-                            style: const TextStyle(
+                            cursorColor: brand,
+                            style: TextStyle(
+                              color: primary,
                               fontSize: 24,
-                              letterSpacing: 8,
-                              fontWeight: FontWeight.bold,
+                              letterSpacing: 7,
+                              fontWeight: FontWeight.w700,
                             ),
-                            decoration: const InputDecoration(
-                              labelText: 'Verification code',
-                              prefixIcon: Icon(Icons.pin_outlined),
-                              border: OutlineInputBorder(),
-                              counterText: '',
-                            ),
+                            decoration: _fieldDecoration(
+                              label: 'Verification Code',
+                              hint: '123456',
+                              icon: Icons.pin_outlined,
+                            ).copyWith(counterText: ''),
                             validator: (value) {
                               final code = value?.trim() ?? '';
+
                               if (code.isEmpty) {
-                                return 'Enter the code from your email';
+                                return 'Enter the verification code';
                               }
+
                               if (!RegExp(r'^\d+$').hasMatch(code)) {
-                                return 'Code must contain only numbers';
+                                return 'Code must contain numbers only';
                               }
+
                               if (code.length < 6 || code.length > 8) {
-                                return 'Enter the full code from your email';
+                                return 'Enter the complete code';
                               }
+
                               return null;
                             },
                           ),
-                          const SizedBox(height: 20),
+
+                          const SizedBox(height: 18),
+
                           SizedBox(
                             width: double.infinity,
-                            height: 50,
+                            height: 52,
                             child: ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: _kMaroon,
-                                foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                textStyle: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
                               onPressed: _isLoading
                                   ? null
                                   : () => _verifyOtp(authService),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.maroon,
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                              ),
                               child: _isLoading
                                   ? const SizedBox(
                                       height: 22,
@@ -519,10 +844,17 @@ class _LoginScreenState extends State<LoginScreen> {
                                         color: Colors.white,
                                       ),
                                     )
-                                  : const Text('Verify & Continue'),
+                                  : const Text(
+                                      'Verify & Continue',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
                             ),
                           ),
-                          const SizedBox(height: 12),
+
+                          const SizedBox(height: 10),
+
                           TextButton(
                             onPressed: (_canSubmit && !_isLoading)
                                 ? () => _resendOtp(authService)
@@ -532,7 +864,9 @@ class _LoginScreenState extends State<LoginScreen> {
                                   ? 'Resend code'
                                   : 'Resend in $_cooldownSeconds s',
                               style: TextStyle(
-                                color: _canSubmit ? _kMaroon : Colors.grey,
+                                color: _canSubmit
+                                    ? brand
+                                    : AppColors.textTertiaryOf(context),
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
@@ -540,28 +874,28 @@ class _LoginScreenState extends State<LoginScreen> {
                         ],
                       ),
                     ),
-                  ),
 
-                  const SizedBox(height: 16),
+                    const SizedBox(height: 12),
 
-                  TextButton.icon(
-                    onPressed: _isLoading
-                        ? null
-                        : () {
-                            setState(() {
-                              _otpSent = false;
-                              _otpController.clear();
-                              _canSubmit = true;
-                              _cooldownSeconds = 0;
-                            });
-                          },
-                    icon: const Icon(Icons.arrow_back, size: 18),
-                    label: const Text('Back to sign in'),
-                    style: TextButton.styleFrom(
-                      foregroundColor: Colors.grey[700],
+                    TextButton.icon(
+                      onPressed: _isLoading
+                          ? null
+                          : () {
+                              setState(() {
+                                _otpSent = false;
+                                _otpController.clear();
+
+                                _canSubmit = true;
+
+                                _cooldownSeconds = 0;
+                              });
+                            },
+                      icon: const Icon(Icons.arrow_back, size: 18),
+                      label: const Text('Back to Sign In'),
+                      style: TextButton.styleFrom(foregroundColor: secondary),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -570,131 +904,238 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  // ----------------------------------------------------------------
-  // LOGIC
-  // ----------------------------------------------------------------
+  // ============================================================
+  // COOLDOWN
+  // ============================================================
+
   Future<void> _startCooldown() async {
+    if (!mounted) return;
+
     setState(() {
       _canSubmit = false;
       _cooldownSeconds = _cooldownDuration;
     });
+
     while (_cooldownSeconds > 0 && mounted) {
       await Future.delayed(const Duration(seconds: 1));
+
       if (!mounted) return;
-      setState(() => _cooldownSeconds--);
+
+      setState(() {
+        _cooldownSeconds--;
+      });
     }
-    if (mounted) setState(() => _canSubmit = true);
+
+    if (!mounted) return;
+
+    setState(() {
+      _canSubmit = true;
+    });
   }
 
+  // ============================================================
+  // SUBMIT
+  // ============================================================
+
   Future<void> _submit(AuthService authService) async {
-    if (!_authFormKey.currentState!.validate()) return;
+    FocusScope.of(context).unfocus();
+
+    if (!_authFormKey.currentState!.validate()) {
+      return;
+    }
+
     if (_isLoading) return;
 
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+    });
 
     try {
+      final email = _emailController.text.trim().toLowerCase();
+
+      final password = _passwordController.text.trim();
+
       if (_isLogin) {
-        await authService.signIn(
-          _emailController.text.trim(),
-          _passwordController.text.trim(),
-        );
+        await authService.signIn(email, password);
       } else {
         await authService.signUp(
-          _emailController.text.trim(),
-          _passwordController.text.trim(),
+          email,
+          password,
           name: _nameController.text.trim(),
         );
 
         if (!mounted) return;
-        setState(() => _otpSent = true);
+
+        setState(() {
+          _otpSent = true;
+        });
 
         await _sendInitialOtp(authService);
       }
     } catch (e) {
       if (!mounted) return;
+
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(e.toString()),
-          backgroundColor: Colors.red,
-          duration: const Duration(seconds: 4),
+          backgroundColor: AppColors.danger,
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(16),
         ),
       );
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
-  /// Handles the Google SSO button tap.
+  // ============================================================
+  // GOOGLE
+  // ============================================================
+
   Future<void> _submitGoogle(AuthService authService) async {
-    setState(() => _isLoading = true);
+    if (_isLoading) return;
+
+    setState(() {
+      _isLoading = true;
+    });
+
     try {
       await authService.signInWithGoogle();
-      // The onAuthStateChange listener in AuthService will handle:
-      //   - navigating to MainScreen on success, or
-      //   - setting authMessage on rejection (shown via _onAuthChanged).
     } catch (e) {
       if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
+        SnackBar(
+          content: Text(e.toString()),
+          backgroundColor: AppColors.danger,
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(16),
+        ),
       );
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
+
+  // ============================================================
+  // INITIAL OTP
+  // ============================================================
 
   Future<void> _sendInitialOtp(AuthService authService) async {
     try {
-      await authService.sendEmailOtp(_emailController.text.trim());
+      await authService.sendEmailOtp(
+        _emailController.text.trim().toLowerCase(),
+      );
+
       _startCooldown();
     } catch (e) {
       if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            'Could not send the code ($e). Tap Resend to try again.',
-          ),
+          content: Text('Could not send the code. $e'),
           backgroundColor: Colors.orange,
-          duration: const Duration(seconds: 5),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(16),
         ),
       );
     }
   }
 
+  // ============================================================
+  // RESEND OTP
+  // ============================================================
+
   Future<void> _resendOtp(AuthService authService) async {
-    setState(() => _isLoading = true);
+    if (_isLoading || !_canSubmit) {
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
     try {
-      await authService.resendEmailOtp(_emailController.text.trim());
+      await authService.resendEmailOtp(
+        _emailController.text.trim().toLowerCase(),
+      );
+
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('New code sent!')));
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('New verification code sent!'),
+          behavior: SnackBarBehavior.floating,
+          margin: EdgeInsets.all(16),
+        ),
+      );
+
       _startCooldown();
     } catch (e) {
       if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
+        SnackBar(
+          content: Text(e.toString()),
+          backgroundColor: AppColors.danger,
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(16),
+        ),
       );
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
-  Future<void> _verifyOtp(AuthService authService) async {
-    if (!_otpFormKey.currentState!.validate()) return;
+  // ============================================================
+  // VERIFY OTP
+  // ============================================================
 
-    setState(() => _isLoading = true);
+  Future<void> _verifyOtp(AuthService authService) async {
+    if (!_otpFormKey.currentState!.validate()) {
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
     try {
       await authService.verifyEmailOtp(
-        email: _emailController.text.trim(),
+        email: _emailController.text.trim().toLowerCase(),
         token: _otpController.text.trim(),
       );
     } catch (e) {
       if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
+        SnackBar(
+          content: Text(e.toString()),
+          backgroundColor: AppColors.danger,
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(16),
+        ),
       );
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 }

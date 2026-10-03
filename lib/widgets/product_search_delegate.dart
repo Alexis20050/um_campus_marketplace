@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import '../models/product.dart';
 import 'product_card.dart';
+import 'empty_state.dart';
 
 class ProductSearchDelegate extends SearchDelegate<String> {
-  final Stream<List<Product>> productsStream;
+  final List<Product> products;
 
-  ProductSearchDelegate(this.productsStream)
+  ProductSearchDelegate(this.products)
     : super(
         searchFieldLabel: 'Search products',
         keyboardType: TextInputType.text,
@@ -16,6 +17,7 @@ class ProductSearchDelegate extends SearchDelegate<String> {
   List<Widget> buildActions(BuildContext context) {
     return [
       IconButton(
+        tooltip: 'Clear search',
         icon: const Icon(Icons.clear),
         onPressed: () {
           query = '';
@@ -27,6 +29,7 @@ class ProductSearchDelegate extends SearchDelegate<String> {
   @override
   Widget buildLeading(BuildContext context) {
     return IconButton(
+      tooltip: 'Back',
       icon: const Icon(Icons.arrow_back),
       onPressed: () => close(context, ''),
     );
@@ -43,54 +46,40 @@ class ProductSearchDelegate extends SearchDelegate<String> {
   }
 
   Widget _buildSearchResults(BuildContext context) {
-    return StreamBuilder<List<Product>>(
-      stream: productsStream,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
+    final queryLower = query.trim().toLowerCase();
+    final filtered = products
+        .where(
+          (p) => '${p.title} ${p.category} ${p.description}'
+              .toLowerCase()
+              .contains(queryLower),
+        )
+        .toList();
 
-        if (snapshot.hasError) {
-          return _buildMessage(
-            icon: Icons.error_outline,
-            title: 'Something went wrong',
-            subtitle: 'Please try again later.',
-          );
-        }
+    if (queryLower.isEmpty) {
+      return _buildMessage(
+        icon: Icons.search,
+        title: 'Start typing to search',
+        subtitle: 'Search by title, category, or description',
+      );
+    }
 
-        final allProducts = snapshot.data ?? [];
-        final queryLower = query.toLowerCase();
-        final filtered = allProducts
-            .where((p) => p.title.toLowerCase().contains(queryLower))
-            .toList();
+    if (filtered.isEmpty) {
+      return _buildMessage(
+        icon: Icons.inbox_outlined,
+        title: 'No products found',
+        subtitle: 'Try a different keyword',
+      );
+    }
 
-        if (query.isEmpty) {
-          return _buildMessage(
-            icon: Icons.search,
-            title: 'Start typing to search',
-            subtitle: 'Find products by title',
-          );
-        }
-
-        if (filtered.isEmpty) {
-          return _buildMessage(
-            icon: Icons.inbox_outlined,
-            title: 'No products found',
-            subtitle: 'Try a different keyword',
-          );
-        }
-
-        return ListView.separated(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          itemCount: filtered.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 8),
-          itemBuilder: (ctx, i) {
-            final product = filtered[i];
-            return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: ProductCard(product: product),
-            );
-          },
+    return ListView.separated(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      itemCount: filtered.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      itemBuilder: (ctx, i) {
+        final product = filtered[i];
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: ProductCard(product: product),
         );
       },
     );
@@ -101,30 +90,9 @@ class ProductSearchDelegate extends SearchDelegate<String> {
     required String title,
     required String subtitle,
   }) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 56, color: Colors.grey[400]),
-            const SizedBox(height: 16),
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Colors.black87,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              subtitle,
-              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
+    return SingleChildScrollView(
+      child: Center(
+        child: EmptyState(icon: icon, title: title, subtitle: subtitle),
       ),
     );
   }

@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/message_provider.dart';
+import '../widgets/empty_state.dart';
+import '../widgets/skeleton_product_card.dart';
 import 'chat_screen.dart';
+import '../utils/student_name.dart';
 
 class ConversationListScreen extends StatefulWidget {
   const ConversationListScreen({super.key});
 
   @override
-  _ConversationListScreenState createState() => _ConversationListScreenState();
+  State<ConversationListScreen> createState() => _ConversationListScreenState();
 }
 
 class _ConversationListScreenState extends State<ConversationListScreen> {
@@ -29,20 +32,33 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
         listen: false,
       ).fetchConversations();
     });
+
     await _conversationsFuture;
   }
 
   String _timeAgo(String dateTimeString) {
-    final dateTime = DateTime.parse(dateTimeString);
+    final dateTime = DateTime.parse(dateTimeString).toLocal();
     final difference = DateTime.now().difference(dateTime);
-    if (difference.inDays > 0) return '${difference.inDays}d ago';
-    if (difference.inHours > 0) return '${difference.inHours}h ago';
-    if (difference.inMinutes > 0) return '${difference.inMinutes}m ago';
+
+    if (difference.inDays > 0) {
+      return '${difference.inDays}d ago';
+    }
+
+    if (difference.inHours > 0) {
+      return '${difference.inHours}h ago';
+    }
+
+    if (difference.inMinutes > 0) {
+      return '${difference.inMinutes}m ago';
+    }
+
     return 'Just now';
   }
 
   @override
   Widget build(BuildContext context) {
+    final messageProvider = context.watch<MessageProvider>();
+
     return Scaffold(
       appBar: AppBar(
         title: const Text(
@@ -58,46 +74,41 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
           future: _conversationsFuture,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
+              return ListView.builder(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                itemCount: 8,
+                itemBuilder: (_, __) => const SkeletonProductCard(),
+              );
             }
+
             if (snapshot.hasError) {
               return ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
                 children: [
-                  const SizedBox(height: 80),
-                  const Icon(Icons.error_outline, size: 48, color: Colors.red),
-                  const SizedBox(height: 8),
-                  Text('Error: ${snapshot.error}', textAlign: TextAlign.center),
-                  const SizedBox(height: 16),
-                  Center(
-                    child: ElevatedButton(
-                      onPressed: _refresh,
-                      child: const Text('Retry'),
-                    ),
+                  const SizedBox(height: 120),
+                  EmptyState(
+                    icon: Icons.cloud_off_outlined,
+                    title: 'Something went wrong',
+                    subtitle: 'Pull down to try again.',
+                    actionLabel: 'Retry',
+                    onAction: _refresh,
                   ),
                 ],
               );
             }
+
             final conversations = snapshot.data ?? [];
+
             if (conversations.isEmpty) {
               return ListView(
-                children: [
-                  SizedBox(height: MediaQuery.of(context).size.height * 0.25),
-                  const Icon(
-                    Icons.forum_outlined,
-                    size: 64,
-                    color: Colors.grey,
-                  ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'No conversations yet',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 18, color: Colors.grey),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Start a conversation by tapping "Message Seller" on any product.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey),
+                physics: const AlwaysScrollableScrollPhysics(),
+                children: const [
+                  SizedBox(height: 120),
+                  EmptyState(
+                    icon: Icons.forum_outlined,
+                    title: 'No conversations yet',
+                    subtitle:
+                        'Start a conversation by tapping "Message Seller" on any product.',
                   ),
                 ],
               );
@@ -109,8 +120,11 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
               separatorBuilder: (_, __) => const Divider(height: 1),
               itemBuilder: (ctx, i) {
                 final convo = conversations[i];
+
                 final product = convo['product'] as Map<String, dynamic>? ?? {};
+
                 final productTitle = product['title'] ?? 'Product';
+
                 final imageUrl =
                     (product['image_urls'] as List?)?.isNotEmpty == true
                     ? product['image_urls'][0]
@@ -120,31 +134,42 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
                   context,
                   listen: false,
                 ).client.auth.currentUser?.id;
-                final buyerEmail = convo['buyer']?['email'] ?? 'Unknown';
-                final sellerEmail = convo['seller']?['email'] ?? 'Unknown';
+
                 final isBuyer = convo['buyer_id'] == currentUserId;
-                final otherEmail = isBuyer ? sellerEmail : buyerEmail;
+
+                final otherProfile = isBuyer ? convo['seller'] : convo['buyer'];
+
+                final displayName =
+                    studentName(otherProfile?['name']) ?? 'Name unavailable';
+
                 final roleLabel = isBuyer ? 'You are buyer' : 'You are seller';
 
-                final lastMessage = convo['last_message'];
+                final lastMessage =
+                    convo['last_message'] as Map<String, dynamic>?;
+
                 final lastMessageContent = lastMessage != null
                     ? lastMessage['content'] ?? ''
                     : '';
-                final unreadCount = convo['unread_count'] ?? 0;
+
+                final lastMessageTime = lastMessage?['created_at']?.toString();
+
+                final unreadCount = messageProvider.unreadFor(
+                  convo['id'] as String,
+                );
 
                 return InkWell(
                   onTap: () async {
-                    await Provider.of<MessageProvider>(
-                      context,
-                      listen: false,
-                    ).markConversationAsRead(convo['id'] as String);
-                    Navigator.push(
+                    await Navigator.push(
                       context,
                       MaterialPageRoute(
                         builder: (_) =>
                             ChatScreen(conversationId: convo['id'] as String),
                       ),
                     );
+
+                    if (mounted) {
+                      await _refresh();
+                    }
                   },
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
@@ -181,14 +206,16 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
                                   ),
                           ),
                         ),
+
                         const SizedBox(width: 12),
+
                         // Title, last message, role
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                otherEmail,
+                                displayName,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
@@ -196,7 +223,9 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
                                   fontSize: 15,
                                 ),
                               ),
+
                               const SizedBox(height: 2),
+
                               Text(
                                 lastMessageContent.isEmpty
                                     ? productTitle
@@ -213,7 +242,9 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
                                       : FontWeight.normal,
                                 ),
                               ),
+
                               const SizedBox(height: 2),
+
                               Text(
                                 roleLabel,
                                 style: TextStyle(
@@ -225,23 +256,25 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
                             ],
                           ),
                         ),
+
                         const SizedBox(width: 8),
+
                         // Timestamp and unread badge
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
-                            Text(
-                              _timeAgo(
-                                convo['created_at'] as String? ??
-                                    DateTime.now().toIso8601String(),
+                            if (lastMessageTime != null)
+                              Text(
+                                _timeAgo(lastMessageTime),
+                                style: TextStyle(
+                                  color: Colors.grey[500],
+                                  fontSize: 12,
+                                ),
                               ),
-                              style: TextStyle(
-                                color: Colors.grey[500],
-                                fontSize: 12,
-                              ),
-                            ),
+
                             if (unreadCount > 0) ...[
                               const SizedBox(height: 4),
+
                               Container(
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 6,

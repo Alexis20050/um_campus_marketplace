@@ -1,30 +1,71 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-import 'package:um_campus_marketplace/main.dart';
+import 'package:um_campus_marketplace/models/product.dart';
+import 'package:um_campus_marketplace/utils/price_validator.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  Map<String, dynamic> row() => {
+    'id': 'product-1',
+    'seller_id': 'seller-1',
+    'title': 'Book',
+    'price': 100,
+    'created_at': '2026-09-25T00:00:00Z',
+    'image_urls': ['https://example.com/a,b.jpg', null, '', 42],
+  };
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+  test('parses numeric prices and preserves commas in image URLs', () {
+    final product = Product.fromMap(row());
+    expect(product.price, 100.0);
+    expect(product.imageUrls, ['https://example.com/a,b.jpg']);
+    expect(product.createdAt, DateTime.utc(2026, 9, 25));
+    expect(product.toMap()['image_urls'], product.imageUrls);
+  });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+  test('image list cannot be mutated through input or output', () {
+    final data = row();
+    final product = Product.fromMap(data);
+    (data['image_urls'] as List).clear();
+    expect(product.imageUrls, hasLength(1));
+    expect(() => product.imageUrls.clear(), throwsUnsupportedError);
+  });
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+  test('rejects malformed dates and array strings', () {
+    for (final date in [null, 'invalid']) {
+      expect(
+        () => Product.fromMap(row()..['created_at'] = date),
+        throwsFormatException,
+      );
+    }
+    expect(
+      () => Product.fromMap(row()..['image_urls'] = '{a,b}'),
+      throwsFormatException,
+    );
+  });
+
+  test('rejects malformed and non-finite stored prices', () {
+    for (final price in [null, '100', double.nan, double.infinity, -1]) {
+      expect(
+        () => Product.fromMap(row()..['price'] = price),
+        throwsFormatException,
+      );
+    }
+  });
+
+  test('validates listing prices including non-finite input', () {
+    for (final value in [
+      null,
+      '',
+      'abc',
+      'NaN',
+      'Infinity',
+      '-Infinity',
+      '0',
+      '-1',
+      '1000001',
+    ]) {
+      expect(validatePrice(value), isNotNull, reason: 'Input: $value');
+    }
+    for (final value in ['0.01', ' 100.50 ', '1000000']) {
+      expect(validatePrice(value), isNull);
+    }
   });
 }

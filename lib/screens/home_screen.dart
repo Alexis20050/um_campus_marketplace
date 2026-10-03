@@ -1,24 +1,37 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../models/product.dart';
+
+import '../providers/notification_provider.dart';
 import '../providers/product_provider.dart';
+
+import '../theme/app_theme.dart';
+
+import '../widgets/empty_state.dart';
 import '../widgets/product_card.dart';
 import '../widgets/product_search_delegate.dart';
 import '../widgets/skeleton_product_card.dart';
-import '../widgets/empty_state.dart';
-import '../theme/app_theme.dart';
+
+import 'favorites_screen.dart';
+import 'notifications_screen.dart';
 import 'post_product_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final VoidCallback? onSell;
+
+  const HomeScreen({super.key, this.onSell});
 
   @override
-  _HomeScreenState createState() => _HomeScreenState();
+  State<HomeScreen> createState() => _HomeScreenState();
 }
 
+enum _Sort { newest, priceLow, priceHigh }
+
 class _HomeScreenState extends State<HomeScreen> {
-  String _selectedCategory = 'All';
-  final List<String> _categories = [
+  String _category = 'All';
+
+  _Sort _sort = _Sort.newest;
+
+  static const _categories = [
     'All',
     'Books',
     'Electronics',
@@ -28,297 +41,500 @@ class _HomeScreenState extends State<HomeScreen> {
     'Services',
   ];
 
+  // ============================================================
+  // SELL
+  // ============================================================
+
+  void _sell() {
+    if (widget.onSell != null) {
+      widget.onSell!();
+
+      return;
+    }
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PostProductScreen(
+          onPostSuccess: () {
+            if (mounted) {
+              Navigator.of(context).pop();
+            }
+          },
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // BUILD
+  // ============================================================
+
   @override
   Widget build(BuildContext context) {
-    final productProvider = Provider.of<ProductProvider>(context);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bgColor = isDark ? AppColors.darkBackground : AppColors.background;
+    final provider = context.watch<ProductProvider>();
+
+    final notificationCount = context.select<NotificationProvider, int>(
+      (provider) => provider.unreadCount,
+    );
+
+    final products = provider.products
+        .where((product) => _category == 'All' || product.category == _category)
+        .toList();
+
+    products.sort(
+      (a, b) => switch (_sort) {
+        _Sort.newest => b.createdAt.compareTo(a.createdAt),
+        _Sort.priceLow => a.price.compareTo(b.price),
+        _Sort.priceHigh => b.price.compareTo(a.price),
+      },
+    );
+
+    final theme = Theme.of(context);
 
     return Scaffold(
-      backgroundColor: bgColor,
       appBar: AppBar(
-        backgroundColor: AppColors.maroon,
-        elevation: 0,
+        backgroundColor: AppColors.surfaceOf(context),
+
+        foregroundColor: AppColors.textPrimaryOf(context),
+
+        surfaceTintColor: Colors.transparent,
+
         title: Row(
           children: [
             Image.asset(
               'assets/images/University_of_Mindanao_Logo.png',
-              height: 32,
-              width: 32,
+              height: 34,
+              width: 34,
+              excludeFromSemantics: true,
             ),
             const SizedBox(width: 10),
-            const Text(
-              'UM Marketplace',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                color: Colors.white,
+            const Flexible(
+              child: Text(
+                'UM Marketplace',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
               ),
             ),
           ],
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(
-              Icons.notifications_none_rounded,
-              color: Colors.white,
-            ),
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Notifications coming soon!')),
-              );
-            },
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          // ── Welcome banner ────────────────────────────────
-          Container(
-            margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [AppColors.maroon, AppColors.maroonDark],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.maroon.withOpacity(0.18),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                const CircleAvatar(
-                  radius: 24,
-                  backgroundColor: AppColors.gold,
-                  child: Icon(
-                    Icons.school_rounded,
-                    color: Colors.white,
-                    size: 26,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Welcome, UM Students!',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Buy and sell within the community',
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.85),
-                          fontSize: 13,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
 
-          // ── Search bar ────────────────────────────────────
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-            child: Material(
-              color: isDark ? AppColors.darkSurface : Colors.white,
-              borderRadius: BorderRadius.circular(25),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(25),
-                onTap: () {
-                  showSearch(
-                    context: context,
-                    delegate: ProductSearchDelegate(
-                      productProvider.productsStream,
+        actions: [
+          // ====================================================
+          // NOTIFICATIONS
+          // ====================================================
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              IconButton(
+                tooltip: 'Notifications',
+                icon: const Icon(Icons.notifications_none_rounded),
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const NotificationsScreen(),
                     ),
                   );
                 },
-                child: Container(
-                  height: 48,
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(25),
-                    border: Border.all(
-                      color: isDark
-                          ? const Color(0xFF2E2E2E)
-                          : Colors.grey[300]!,
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.search_rounded,
-                        color: Colors.grey[isDark ? 500 : 500],
+              ),
+
+              if (notificationCount > 0)
+                Positioned(
+                  right: 2,
+                  top: 2,
+                  child: IgnorePointer(
+                    child: Container(
+                      constraints: const BoxConstraints(
+                        minWidth: 18,
+                        minHeight: 18,
                       ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Search for products',
-                        style: TextStyle(
-                          color: Colors.grey[isDark ? 400 : 600],
-                          fontSize: 14,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 5,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.danger,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: AppColors.surfaceOf(context),
+                          width: 2,
                         ),
                       ),
-                    ],
+                      child: Text(
+                        notificationCount > 99 ? '99+' : '$notificationCount',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                          height: 1.1,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ),
+            ],
           ),
 
-          // ── Category chips ────────────────────────────────
-          SizedBox(
-            height: 44,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              itemCount: _categories.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 8),
-              itemBuilder: (ctx, i) {
-                final category = _categories[i];
-                final isSelected = _selectedCategory == category;
+          // ====================================================
+          // FAVORITES
+          // ====================================================
+          IconButton(
+            tooltip: 'Saved listings',
+            icon: const Icon(Icons.favorite_border_rounded),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const FavoritesScreen()),
+              );
+            },
+          ),
 
-                final unselectedBg = isDark
-                    ? const Color(0xFF2A2A2A)
-                    : Colors.grey[200];
-                final unselectedText = isDark
-                    ? Colors.grey[200]
-                    : Colors.black87;
+          const SizedBox(width: 8),
+        ],
+      ),
 
-                return Material(
-                  color: isSelected ? AppColors.maroon : unselectedBg,
-                  borderRadius: BorderRadius.circular(20),
-                  elevation: isSelected ? 2 : 0,
-                  shadowColor: AppColors.maroon.withOpacity(0.3),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(20),
-                    onTap: () => setState(() => _selectedCategory = category),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      curve: Curves.easeOut,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
+      body: SafeArea(
+        top: false,
+
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final gutter = constraints.maxWidth > 1160
+                ? (constraints.maxWidth - 1120) / 2
+                : 16.0;
+
+            final width = constraints.maxWidth - gutter * 2;
+
+            final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
+
+            final columns = width < 360 ? 1 : (width / 260).floor().clamp(2, 4);
+
+            final tileWidth = (width - (columns - 1) * 16) / columns;
+
+            return CustomScrollView(
+              key: const PageStorageKey('marketplace-feed'),
+
+              slivers: [
+                // =================================================
+                // HERO
+                // =================================================
+                SliverPadding(
+                  padding: EdgeInsets.fromLTRB(gutter, 20, gutter, 0),
+
+                  sliver: SliverToBoxAdapter(
+                    child: Container(
+                      padding: const EdgeInsets.all(24),
+
+                      decoration: BoxDecoration(
+                        color: AppColors.maroonDark,
+                        borderRadius: BorderRadius.circular(24),
                       ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
+
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+
                         children: [
-                          if (isSelected) ...[
-                            const Icon(
-                              Icons.check_rounded,
-                              size: 15,
-                              color: Colors.white,
-                            ),
-                            const SizedBox(width: 4),
-                          ],
-                          Text(
-                            category,
+                          const Text(
+                            'THE CAMPUS EXCHANGE',
                             style: TextStyle(
-                              color: isSelected ? Colors.white : unselectedText,
-                              fontWeight: isSelected
-                                  ? FontWeight.w600
-                                  : FontWeight.w500,
-                              fontSize: 13.5,
+                              color: AppColors.gold,
+                              fontSize: 11,
+                              letterSpacing: 2,
+                              fontWeight: FontWeight.w700,
                             ),
+                          ),
+
+                          const SizedBox(height: 10),
+
+                          const Text(
+                            'Great finds.\nRight here on campus.',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 28,
+                              height: 1.15,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: -0.7,
+                            ),
+                          ),
+
+                          const SizedBox(height: 12),
+
+                          const Text(
+                            'Books, everyday essentials, and more from the UM community.',
+                            style: TextStyle(
+                              color: Color(0xFFEADADA),
+                              height: 1.5,
+                            ),
+                          ),
+
+                          const SizedBox(height: 18),
+
+                          FilledButton.icon(
+                            onPressed: _sell,
+
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppColors.gold,
+                              foregroundColor: const Color(0xFF301A00),
+                              minimumSize: const Size(0, 48),
+                            ),
+
+                            icon: const Icon(Icons.add_rounded, size: 20),
+
+                            label: const Text('Sell an item'),
                           ),
                         ],
                       ),
                     ),
                   ),
-                );
-              },
-            ),
-          ),
+                ),
 
-          const SizedBox(height: 4),
+                // =================================================
+                // SEARCH
+                // =================================================
+                SliverPadding(
+                  padding: EdgeInsets.fromLTRB(gutter, 20, gutter, 16),
 
-          // ── Product list ──────────────────────────────────
-          Expanded(
-            child: StreamBuilder<List<Product>>(
-              stream: productProvider.productsStream,
-              builder: (context, snapshot) {
-                if (snapshot.hasError) {
-                  return EmptyState(
-                    icon: Icons.cloud_off_outlined,
-                    title: 'Something went wrong',
-                    subtitle:
-                        'We couldn\'t load the listings. Pull down to retry.',
-                    actionLabel: 'Retry',
-                    onAction: () => setState(() {}),
-                  );
-                }
+                  sliver: SliverToBoxAdapter(
+                    child: TextField(
+                      decoration: const InputDecoration(
+                        hintText: 'Search books, gadgets, and more',
+                        prefixIcon: Icon(Icons.search_rounded),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 18,
+                        ),
+                      ),
 
-                // Loading: show skeleton cards instead of a spinner.
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(0, 8, 0, 80),
-                    itemCount: 6,
-                    itemBuilder: (_, __) => const SkeletonProductCard(),
-                  );
-                }
+                      showCursor: false,
 
-                final allProducts = snapshot.data ?? [];
-                final filteredProducts = _selectedCategory == 'All'
-                    ? allProducts
-                    : allProducts
-                          .where((p) => p.category == _selectedCategory)
-                          .toList();
+                      enableInteractiveSelection: false,
 
-                // Empty state: friendlier copy + illustration.
-                if (filteredProducts.isEmpty) {
-                  final isAll = _selectedCategory == 'All';
-                  return EmptyState(
-                    icon: isAll
-                        ? Icons.storefront_outlined
-                        : Icons.filter_alt_off_outlined,
-                    title: isAll
-                        ? 'No listings yet'
-                        : 'Nothing in "$_selectedCategory"',
-                    subtitle: isAll
-                        ? 'Be the first to post something for sale on campus.'
-                        : 'Try a different category or check back later.',
-                    actionLabel: isAll ? null : 'Show all',
-                    onAction: isAll
-                        ? null
-                        : () => setState(() => _selectedCategory = 'All'),
-                  );
-                }
+                      onTap: () {
+                        showSearch(
+                          context: context,
+                          delegate: ProductSearchDelegate(provider.products),
+                        );
+                      },
 
-                return ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
-                  itemCount: filteredProducts.length,
-                  itemBuilder: (ctx, i) =>
-                      ProductCard(product: filteredProducts[i]),
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const PostProductScreen()),
-          );
-        },
-        icon: const Icon(Icons.add),
-        label: const Text('Sell'),
-        backgroundColor: AppColors.maroon,
-        elevation: 3,
+                      readOnly: true,
+                    ),
+                  ),
+                ),
+
+                // =================================================
+                // CATEGORIES
+                // =================================================
+                SliverToBoxAdapter(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+
+                    padding: EdgeInsets.symmetric(horizontal: gutter),
+
+                    child: Row(
+                      children: _categories
+                          .map(
+                            (category) => Padding(
+                              padding: const EdgeInsets.only(right: 8),
+
+                              child: ChoiceChip(
+                                label: Text(category),
+
+                                selected: category == _category,
+
+                                selectedColor: AppColors.brandSoftOf(context),
+
+                                labelStyle: TextStyle(
+                                  color: AppColors.textPrimaryOf(context),
+
+                                  fontWeight: category == _category
+                                      ? FontWeight.w700
+                                      : FontWeight.w500,
+                                ),
+
+                                onSelected: (_) {
+                                  setState(() {
+                                    _category = category;
+                                  });
+                                },
+                              ),
+                            ),
+                          )
+                          .toList(),
+                    ),
+                  ),
+                ),
+
+                // =================================================
+                // HEADING + SORT
+                // =================================================
+                SliverPadding(
+                  padding: EdgeInsets.fromLTRB(gutter, 20, gutter, 12),
+
+                  sliver: SliverToBoxAdapter(
+                    child: Wrap(
+                      alignment: WrapAlignment.spaceBetween,
+
+                      crossAxisAlignment: WrapCrossAlignment.center,
+
+                      spacing: 16,
+
+                      runSpacing: 8,
+
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+
+                          children: [
+                            Text(
+                              _category == 'All'
+                                  ? 'Explore the marketplace'
+                                  : _category,
+
+                              style: theme.textTheme.titleLarge?.copyWith(
+                                fontSize: 21,
+                              ),
+                            ),
+
+                            const SizedBox(height: 4),
+
+                            Text(
+                              provider.isLoading
+                                  ? 'Finding campus favorites...'
+                                  : provider.error != null
+                                  ? 'Please try again'
+                                  : '${products.length} ${products.length == 1 ? 'listing' : 'listings'} to explore',
+
+                              style: theme.textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+
+                        PopupMenuButton<_Sort>(
+                          tooltip: 'Sort listings',
+
+                          initialValue: _sort,
+
+                          onSelected: (value) {
+                            setState(() {
+                              _sort = value;
+                            });
+                          },
+
+                          itemBuilder: (_) => const [
+                            PopupMenuItem(
+                              value: _Sort.newest,
+                              child: Text('Newest first'),
+                            ),
+                            PopupMenuItem(
+                              value: _Sort.priceLow,
+                              child: Text('Price: low to high'),
+                            ),
+                            PopupMenuItem(
+                              value: _Sort.priceHigh,
+                              child: Text('Price: high to low'),
+                            ),
+                          ],
+
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+
+                              children: [
+                                const Icon(Icons.sort_rounded, size: 20),
+
+                                const SizedBox(width: 6),
+
+                                Text(switch (_sort) {
+                                  _Sort.newest => 'Newest',
+                                  _Sort.priceLow => 'Price: low to high',
+                                  _Sort.priceHigh => 'Price: high to low',
+                                }),
+
+                                const Icon(Icons.expand_more_rounded, size: 18),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                // =================================================
+                // CONTENT
+                // =================================================
+                if (provider.isLoading)
+                  SliverPadding(
+                    padding: EdgeInsets.symmetric(horizontal: gutter),
+                    sliver: SliverList.builder(
+                      itemCount: 4,
+                      itemBuilder: (_, __) => const SkeletonProductCard(),
+                    ),
+                  )
+                else if (provider.error != null)
+                  SliverToBoxAdapter(
+                    child: EmptyState(
+                      icon: Icons.cloud_off_rounded,
+
+                      title: 'Could not load listings',
+
+                      subtitle: provider.error!,
+
+                      actionLabel: 'Try again',
+
+                      onAction: provider.retry,
+                    ),
+                  )
+                else if (products.isEmpty)
+                  SliverToBoxAdapter(
+                    child: EmptyState(
+                      icon: Icons.storefront_outlined,
+
+                      title: _category == 'All'
+                          ? 'Your campus marketplace starts here'
+                          : 'No listings in $_category yet',
+
+                      subtitle: _category == 'All'
+                          ? 'Give something you no longer use a new home.'
+                          : 'Explore another category or come back soon.',
+
+                      actionLabel: _category == 'All'
+                          ? 'Create a listing'
+                          : 'Browse all listings',
+
+                      onAction: _category == 'All'
+                          ? _sell
+                          : () {
+                              setState(() {
+                                _category = 'All';
+                              });
+                            },
+                    ),
+                  )
+                else
+                  SliverPadding(
+                    padding: EdgeInsets.fromLTRB(gutter, 0, gutter, 28),
+
+                    sliver: SliverGrid.builder(
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: columns,
+
+                        crossAxisSpacing: 16,
+
+                        mainAxisSpacing: 16,
+
+                        mainAxisExtent: tileWidth * 0.75 + 28 + 160 * scale,
+                      ),
+
+                      itemCount: products.length,
+
+                      itemBuilder: (_, index) =>
+                          ProductCard(product: products[index], gallery: true),
+                    ),
+                  ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }

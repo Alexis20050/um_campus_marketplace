@@ -34,11 +34,12 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
-  provider: ^6.1.1  # State management
-  supabase_flutter: ^2.17.2    # Supabase backend (auth, database, realtime)
+  provider: ^6.1.1 # State management
+  supabase_flutter: ^2.17.2 # Supabase backend (auth, database, realtime)
   image_picker: ^1.0.4
-  flutter_image_compress: ^2.3.0  # Client-side image compression before upload
+  flutter_image_compress: ^2.3.0 # Client-side image compression before upload
   app_links: ^6.1.0
+  shared_preferences: ^2.5.5
 
 dev_dependencies:
   flutter_test:
@@ -47,12 +48,23 @@ dev_dependencies:
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
   # activated in the `analysis_options.yaml` file located at the root of your
-  # package. See that file for information about deactivating specific lint
+  # package. See that file for information on deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^5.0.0
 
+  # Generates launcher icons for Android and iOS.
+  flutter_launcher_icons: ^0.14.4
+
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
+
+# Configuration for generating the application launcher icon.
+# Source:
+# C:\dev\um_campus_marketplace\assets\images\icon\app_icon.png
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/icon/app_icon.png"
 
 # The following section is specific to Flutter packages.
 flutter:
@@ -61,8 +73,11 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
   assets:
     - assets/images/University_of_Mindanao_Logo.png
+    - assets/images/icon/app_icon.png
+
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg
@@ -71,11 +86,11 @@ flutter:
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
 
-  # For details regarding adding assets from package dependencies, see
-  # https://flutter.dev/to/asset-from-package
+  # For details regarding adding assets from package dependencies,
+  # see https://flutter.dev/to/asset-from-package
 
   # To add custom fonts to your application, add a fonts section here,
-  # in this "flutter" section. Each entry in this list should have a
+  # in this "flutter" section. Each entry in the list below should have a
   # "family" key with the font family name, and a "fonts" key with a
   # list giving the asset and other descriptors for the font. For
   # example:

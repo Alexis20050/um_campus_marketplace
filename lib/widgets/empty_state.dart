@@ -21,9 +21,9 @@ class EmptyState extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final baseTone = isDark
-        ? AppColors.maroon.withOpacity(0.15)
+        ? AppColors.maroon.withValues(alpha: 0.15)
         : AppColors.maroonLight;
-    final accentTone = AppColors.maroon.withOpacity(isDark ? 0.55 : 0.85);
+    final accentTone = AppColors.maroon.withValues(alpha: isDark ? 0.55 : 0.85);
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 40),
@@ -54,10 +54,10 @@ class EmptyState extends StatelessWidget {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: isDark
-                        ? AppColors.maroon.withOpacity(0.22)
+                        ? AppColors.maroon.withValues(alpha: 0.22)
                         : Colors.white,
                     border: Border.all(
-                      color: AppColors.maroon.withOpacity(0.18),
+                      color: AppColors.maroon.withValues(alpha: 0.18),
                       width: 2,
                     ),
                   ),
@@ -75,7 +75,7 @@ class EmptyState extends StatelessWidget {
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: AppColors.maroon.withOpacity(0.35),
+                        color: AppColors.maroon.withValues(alpha: 0.35),
                         blurRadius: 16,
                         offset: const Offset(0, 6),
                       ),
